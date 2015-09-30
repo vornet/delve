@@ -357,3 +357,8 @@ func wait(pid, tgid, options int) (int, *sys.WaitStatus, error) {
 		}
 	}
 }
+
+func killProcess(pid int) (err error) {
+	err = sys.Kill(pid, sys.SIGINT)
+	return err
+}

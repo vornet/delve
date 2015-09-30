@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	sys "golang.org/x/sys/unix"
-
 	"github.com/derekparker/delve/dwarf/frame"
 	"github.com/derekparker/delve/dwarf/line"
 	"github.com/derekparker/delve/dwarf/reader"
@@ -106,7 +104,7 @@ func (dbp *Process) Detach(kill bool) (err error) {
 			return
 		}
 		if kill {
-			err = sys.Kill(dbp.Pid, sys.SIGINT)
+			err = killProcess(dbp.Pid)
 		}
 	})
 	return
@@ -233,9 +231,9 @@ func (dbp *Process) ClearBreakpoint(addr uint64) (*Breakpoint, error) {
 }
 
 // Returns the status of the current main thread context.
-func (dbp *Process) Status() *sys.WaitStatus {
-	return dbp.CurrentThread.Status
-}
+//func (dbp *Process) Status() *sys.WaitStatus {
+//	return dbp.CurrentThread.Status
+//}
 
 // Step over function calls.
 func (dbp *Process) Next() error {
@@ -566,7 +564,7 @@ func (dbp *Process) FindBreakpoint(pc uint64) (*Breakpoint, bool) {
 func initializeDebugProcess(dbp *Process, path string, attach bool) (*Process, error) {
 	if attach {
 		var err error
-		dbp.execPtraceFunc(func() { err = sys.PtraceAttach(dbp.Pid) })
+		dbp.execPtraceFunc(func() { err = PtraceAttach(dbp.Pid) })
 		if err != nil {
 			return nil, err
 		}

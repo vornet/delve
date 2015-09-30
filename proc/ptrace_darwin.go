@@ -6,6 +6,10 @@ import (
 	sys "golang.org/x/sys/unix"
 )
 
+func PtraceAttach(pid int) error {
+	return sys.PtraceAttach(pid)
+}
+
 func PtraceDetach(tid, sig int) error {
 	_, _, err := sys.Syscall6(sys.SYS_PTRACE, sys.PT_DETACH, uintptr(tid), 1, uintptr(sig), 0, 0)
 	if err != syscall.Errno(0) {

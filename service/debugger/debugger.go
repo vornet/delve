@@ -9,7 +9,6 @@ import (
 
 	"github.com/derekparker/delve/proc"
 	"github.com/derekparker/delve/service/api"
-	sys "golang.org/x/sys/unix"
 )
 
 // Debugger service.
@@ -81,7 +80,7 @@ func (d *Debugger) Restart() error {
 			d.process.Halt()
 		}
 		// Ensure the process is in a PTRACE_STOP.
-		if err := sys.Kill(d.ProcessPid(), sys.SIGSTOP); err != nil {
+		if err := killProcess(d.ProcessPid()); err != nil {
 			return err
 		}
 		if err := d.Detach(true); err != nil {

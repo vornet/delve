@@ -9,8 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	sys "golang.org/x/sys/unix"
+	"syscall"
 
 	"github.com/derekparker/delve/config"
 	"github.com/derekparker/delve/service"
@@ -155,7 +154,7 @@ starts and attaches to it, and enables you to immediately begin debugging your p
 					return 1
 				}
 				sigChan := make(chan os.Signal)
-				signal.Notify(sigChan, sys.SIGINT)
+				signal.Notify(sigChan, syscall.SIGINT)
 				client := rpc.NewClient(listener.Addr().String())
 				funcs, err := client.ListFunctions(args[0])
 				if err != nil {
@@ -312,7 +311,7 @@ func execute(attachPid int, processArgs []string, conf *config.Config) int {
 		err, status = term.Run()
 	} else {
 		ch := make(chan os.Signal)
-		signal.Notify(ch, sys.SIGINT)
+		signal.Notify(ch, syscall.SIGINT)
 		<-ch
 		err = server.Stop(true)
 	}
