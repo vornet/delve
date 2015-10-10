@@ -8,21 +8,7 @@ import (
 	sys "golang.org/x/sys/unix"
 )
 
-// Thread represents a single thread in the traced process
-// Id represents the thread id or port, Process holds a reference to the
-// Process struct that contains info on the process as
-// a whole, and Status represents the last result of a `wait` call
-// on this thread.
-type Thread struct {
-	Id                int             // Thread ID or mach port
-	Status            *sys.WaitStatus // Status returned from last wait call
-	CurrentBreakpoint *Breakpoint     // Breakpoint thread is currently stopped at
-
-	dbp            *Process
-	singleStepping bool
-	running        bool
-	os             *OSSpecificDetails
-}
+type WaitStatus sys.WaitStatus
 
 type OSSpecificDetails struct {
 	thread_act C.thread_act_t

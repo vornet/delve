@@ -52,7 +52,7 @@ func (r *Regs) TLS() uint64 {
 }
 
 func (r *Regs) SetPC(thread *Thread, pc uint64) error {
-	return fmt.Errorf("Not implemented")
+	return fmt.Errorf("Not implemented: SetPC")
 }
 
 func registers(thread *Thread) (Registers, error) {

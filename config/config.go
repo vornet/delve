@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/user"
 	"path"
 
 	yaml "gopkg.in/yaml.v2"
@@ -104,9 +103,9 @@ func createConfigPath() error {
 
 // GetConfigFilePath gets the full path to the given config file name.
 func GetConfigFilePath(file string) (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	return path.Join(usr.HomeDir, configDir, file), nil
+	// usr, err := user.Current()
+	// if err != nil {
+	// 	return "", err
+	// }
+	return path.Join("c:\\users\\lukeh", configDir, file), nil
 }

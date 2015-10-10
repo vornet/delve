@@ -1,57 +1,68 @@
 package proc
 
-// #include "threads_darwin.h"
-//import "C"
+// #include "threads_windows.h"
+import "C"
 import (
 	"fmt"
+	"unsafe"
 	sys "golang.org/x/sys/windows"
 )
 
-// Thread represents a single thread in the traced process
-// Id represents the thread id or port, Process holds a reference to the
-// Process struct that contains info on the process as
-// a whole, and Status represents the last result of a `wait` call
-// on this thread.
-type Thread struct {
-	Id                int             // Thread ID or mach port
-	Status            *sys.WaitStatus // Status returned from last wait call
-	CurrentBreakpoint *Breakpoint     // Breakpoint thread is currently stopped at
-
-	dbp            *Process
-	singleStepping bool
-	running        bool
-	os             *OSSpecificDetails
-}
-
+type WaitStatus sys.WaitStatus
 
 type OSSpecificDetails struct {
 }
 
 func (t *Thread) halt() (err error) {
-	return fmt.Errorf("Not implemented")
+	fmt.Println("halt")
+	return fmt.Errorf("Not implemented: halt")
 }
 
 func (t *Thread) singleStep() error {
-	return fmt.Errorf("Not implemented")
+	fmt.Println("singleStep")
+	return fmt.Errorf("Not implemented: singleStep")
 }
 
 func (t *Thread) resume() error {
-	return fmt.Errorf("Not implemented")
+	fmt.Println("resume")
+	return fmt.Errorf("Not implemented: resume")
 }
 
 func (thread *Thread) blocked() bool {
+	fmt.Println("blocked")
 	return false
 }
 
 func (thread *Thread) stopped() bool {
+	fmt.Println("stopped")
 	return false
 }
 
 func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
-	return 0, fmt.Errorf("Not implemented")
+	fmt.Println("writeMemory")
+	return 0, fmt.Errorf("Not implemented: writeMemory")
 }
 
-
 func (thread *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
-	return nil, fmt.Errorf("Not implemented")
+	fmt.Println("readMemory")
+	if size == 0 {
+		return nil, nil
+	}
+	var (
+		buf     = make([]byte, size)
+		vm_data = unsafe.Pointer(&buf[0])
+		vm_addr = unsafe.Pointer(addr)
+		length  = C.int(size)
+	)
+
+	fmt.Println(thread.dbp.os.hProcess)
+	fmt.Println(addr)
+	fmt.Println(size)
+	fmt.Println(length)
+	ret := C.read_memory(thread.dbp.os.hProcess, vm_addr, vm_data, length)
+	fmt.Println(buf)
+	if ret < 0 {
+		return nil, fmt.Errorf("could not read memory")
+	}
+	return buf, nil
 }

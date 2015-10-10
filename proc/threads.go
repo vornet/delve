@@ -10,6 +10,22 @@ import (
 	"github.com/derekparker/delve/source"
 )
 
+// Thread represents a single thread in the traced process
+// Id represents the thread id or port, Process holds a reference to the
+// Process struct that contains info on the process as
+// a whole, and Status represents the last result of a `wait` call
+// on this thread.
+type Thread struct {
+	Id                int             // Thread ID or mach port
+	Status            *WaitStatus     // Status returned from last wait call
+	CurrentBreakpoint *Breakpoint     // Breakpoint thread is currently stopped at
+
+	dbp            *Process
+	singleStepping bool
+	running        bool
+	os             *OSSpecificDetails
+}
+
 // Represents the location of a thread.
 // Holds information on the current instruction
 // address, the source file:line, and the function.
