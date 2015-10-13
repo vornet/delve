@@ -238,7 +238,8 @@ func (loc *AddrLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]api.
 
 func (loc *NormalLocationSpec) FileMatch(path string) bool {
 	if len(loc.Base) < len(path)-1 {
-		return strings.HasSuffix(path, loc.Base) && (path[len(path)-len(loc.Base)-1] == filepath.Separator)
+		// Even in PE files on Windows, the symbol table path is encoded with '/'
+		return strings.HasSuffix(path, loc.Base) && (path[len(path)-len(loc.Base)-1] == '/')
 	} else {
 		return loc.Base == path
 	}
@@ -290,12 +291,12 @@ func (loc *NormalLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]ap
 			}
 		}
 	}
-
+	
 	switch len(candidates) {
 	case 1:
 		var addr uint64
 		var err error
-		if candidates[0][0] == '/' {
+		if filepath.IsAbs(candidates[0]) {
 			if loc.LineOffset < 0 {
 				return nil, fmt.Errorf("Malformed breakpoint location, no line offset specified")
 			}

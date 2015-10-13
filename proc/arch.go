@@ -35,7 +35,7 @@ func (a *AMD64) SetGStructOffset(ver GoVersion, isextld bool) {
 	switch runtime.GOOS {
 	case "darwin":
 		a.gStructOffset = 0x8a0
-	case "linux":
+	case "linux", "windows":
 		a.gStructOffset = 0xfffffffffffffff0
 		if isextld || ver.AfterOrEqual(GoVersion{1, 5, -1, 2, 0}) || ver.IsDevel() {
 			a.gStructOffset += 8

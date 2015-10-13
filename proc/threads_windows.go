@@ -11,6 +11,7 @@ import (
 type WaitStatus sys.WaitStatus
 
 type OSSpecificDetails struct {
+	hThread C.HANDLE
 }
 
 func (t *Thread) halt() (err error) {

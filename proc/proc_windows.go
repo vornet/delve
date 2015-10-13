@@ -54,14 +54,15 @@ func Launch(cmd []string) (*Process, error) {
 	dbp := New(int(pi.ProcessId))
 	
 	var hProcess C.HANDLE
-	var hThread C.int
+	var hThread C.HANDLE
+	var threadID C.int
 	
-	res, err := C.waitForCreateProcessEvent(&hProcess, &hThread)
+	res, err := C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
 	if res != 0 {
-		return nil, err 
+		return nil, err 	
 	}
 	dbp.os.hProcess = hProcess
-	_, err = dbp.addThread(int(hThread), false)
+	_, err = dbp.addThread(hThread, int(threadID), false)
 	if err != nil {
 		return nil, err
 	}
@@ -88,24 +89,29 @@ func (dbp *Process) requestManualStop() (err error) {
 func (dbp *Process) updateThreadList() error {
 	fmt.Println("updateThreadList")
 	fmt.Println("Did not update the thread list - I think this will not be necessary?")
+	
+	for threadID := range dbp.Threads {
+		if dbp.CurrentThread == nil {
+			dbp.SwitchThread(threadID)
+		}
+		return nil
+	}
 	return nil
 }
 
-func (dbp *Process) addThread(hThread int, attach bool) (*Thread, error) {
+func (dbp *Process) addThread(hThread C.HANDLE, threadID int, attach bool) (*Thread, error) {
 	fmt.Println("addThread")
-	if thread, ok := dbp.Threads[hThread]; ok {
+	if thread, ok := dbp.Threads[threadID]; ok {
 		return thread, nil
 	}
 	thread := &Thread{
-		Id:  hThread,
+		Id:  threadID,
 		dbp: dbp,
 		os:  new(OSSpecificDetails),
 	}
-	dbp.Threads[hThread] = thread
-	//thread.os.thread_act = C.thread_act_t(hThread)
-	if dbp.CurrentThread == nil {
-		dbp.SwitchThread(thread.Id)
-	}
+	thread.os.hThread = hThread
+	dbp.Threads[threadID] = thread
+	
 	return thread, nil
 }
 
@@ -127,30 +133,84 @@ func (dbp *Process) parseDebugFrame(exe *pe.File, wg *sync.WaitGroup) {
 	fmt.Println("#success parseDebugFrame")
 }
 
+// Borrowed from https://golang.org/src/cmd/internal/objfile/pe.go
+func findPESymbol(f *pe.File, name string) (*pe.Symbol, error) {
+	for _, s := range f.Symbols {
+		if s.Name != name {
+			continue
+		}
+		if s.SectionNumber <= 0 {
+			return nil, fmt.Errorf("symbol %s: invalid section number %d", name, s.SectionNumber)
+		}
+		if len(f.Sections) < int(s.SectionNumber) {
+			return nil, fmt.Errorf("symbol %s: section number %d is larger than max %d", name, s.SectionNumber, len(f.Sections))
+		}
+		return s, nil
+	}
+	return nil, fmt.Errorf("no %s symbol found", name)
+}
+
+// Borrowed from https://golang.org/src/cmd/internal/objfile/pe.go
+func loadPETable(f *pe.File, sname, ename string) ([]byte, error) {
+	ssym, err := findPESymbol(f, sname)
+	if err != nil {
+		return nil, err
+	}
+	esym, err := findPESymbol(f, ename)
+	if err != nil {
+		return nil, err
+	}
+	if ssym.SectionNumber != esym.SectionNumber {
+		return nil, fmt.Errorf("%s and %s symbols must be in the same section", sname, ename)
+	}
+	sect := f.Sections[ssym.SectionNumber-1]
+	data, err := sect.Data()
+	if err != nil {
+		return nil, err
+	}
+	return data[ssym.Value:esym.Value], nil
+}
+
+// Borrowed from https://golang.org/src/cmd/internal/objfile/pe.go
+func pcln(exe *pe.File) (textStart uint64, symtab, pclntab []byte, err error) {
+	var imageBase uint64
+	switch oh := exe.OptionalHeader.(type) {
+	case *pe.OptionalHeader32:
+		imageBase = uint64(oh.ImageBase)
+	case *pe.OptionalHeader64:
+		imageBase = oh.ImageBase
+	default:
+		return 0, nil, nil, fmt.Errorf("pe file format not recognized")
+	}
+	if sect := exe.Section(".text"); sect != nil {
+		textStart = imageBase + uint64(sect.VirtualAddress)
+	}
+	if pclntab, err = loadPETable(exe, "runtime.pclntab", "runtime.epclntab"); err != nil {
+		// We didn't find the symbols, so look for the names used in 1.3 and earlier.
+		// TODO: Remove code looking for the old symbols when we no longer care about 1.3.
+		var err2 error
+		if pclntab, err2 = loadPETable(exe, "pclntab", "epclntab"); err2 != nil {
+			return 0, nil, nil, err
+		}
+	}
+	if symtab, err = loadPETable(exe, "runtime.symtab", "runtime.esymtab"); err != nil {
+		// Same as above.
+		var err2 error
+		if symtab, err2 = loadPETable(exe, "symtab", "esymtab"); err2 != nil {
+			return 0, nil, nil, err
+		}
+	}
+	return textStart, symtab, pclntab, nil
+}
+
 func (dbp *Process) obtainGoSymbols(exe *pe.File, wg *sync.WaitGroup) {
 	fmt.Println("obtainGoSymbols")
 	defer wg.Done()
-
-	var (
-		symdat  []byte
-		pclndat []byte
-		err     error
-	)
-
-	if sec := exe.Section(".gosymtab"); sec != nil {
-		symdat, err = sec.Data()
-		if err != nil {
-			fmt.Println("could not get .gosymtab section", err)
-			os.Exit(1)
-		}
-	}
-
-	if sec := exe.Section(".gopclntab"); sec != nil {
-		pclndat, err = sec.Data()
-		if err != nil {
-			fmt.Println("could not get .gopclntab section", err)
-			os.Exit(1)
-		}
+	
+	_, symdat, pclndat, err := pcln(exe)
+	if err != nil {
+		fmt.Println("could not get Go symbols", err)
+		os.Exit(1)
 	}
 	
 	pcln := gosym.NewLineTable(pclndat, uint64(exe.Section(".text").Offset))

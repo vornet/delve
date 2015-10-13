@@ -8,4 +8,4 @@ int add(int x, int y);
 
 void wait();
 
-int waitForCreateProcessEvent(HANDLE* hProcess, int* hThread);
+int waitForCreateProcessEvent(HANDLE* hProcess, HANDLE* hThread, int* threadID);
