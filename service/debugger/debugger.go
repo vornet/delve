@@ -80,7 +80,7 @@ func (d *Debugger) Restart() error {
 			d.process.Halt()
 		}
 		// Ensure the process is in a PTRACE_STOP.
-		if err := killProcess(d.ProcessPid()); err != nil {
+		if err := stopProcess(d.ProcessPid()); err != nil {
 			return err
 		}
 		if err := d.Detach(true); err != nil {

@@ -2,17 +2,14 @@ package debugger
 
 import (
 	"fmt"
-	"os"
 )
 
 func attachErrorMessage(pid int, err error) error {
 	return fmt.Errorf("could not attach to pid %d: %s", pid, err)
 }
 
-func killProcess(pid int) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	return proc.Kill()
+func stopProcess(pid int) error {
+	// TODO: We're assuming that process is always stopped 
+	// when we are in interactive debugger.
+	return nil
 }

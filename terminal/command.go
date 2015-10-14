@@ -818,9 +818,9 @@ func printfile(filename string, line int, showArrow bool) error {
 
 		var lineNum string
 		if i < 10 {
-			lineNum = fmt.Sprintf("\033[34m%s  %d\033[0m:\t", arrow, i)
+			lineNum = fmt.Sprintf("\033[36m%s  %d\033[0m:\t", arrow, i)
 		} else {
-			lineNum = fmt.Sprintf("\033[34m%s %d\033[0m:\t", arrow, i)
+			lineNum = fmt.Sprintf("\033[36m%s %d\033[0m:\t", arrow, i)
 		}
 		context = append(context, lineNum+line)
 	}

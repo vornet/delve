@@ -15,7 +15,8 @@ type OSSpecificDetails struct {
 }
 
 func (t *Thread) halt() (err error) {
-	fmt.Println("Ignoring the request to halt - I believe this is guaranteed to already be halted...")
+	// TODO: We are currently ignoring the request to halt.
+	// I believe this is guaranteed to already be halted. 
 	return nil
 }
 
@@ -37,13 +38,14 @@ func (t *Thread) resume() error {
 }
 
 func (thread *Thread) blocked() bool {
-	fmt.Println("blocked")
+	fmt.Println("Not yet implemented: blocked")
 	return false
 }
 
 func (thread *Thread) stopped() bool {
-	fmt.Println("stopped")
-	return false
+	// TODO: We are assuming that threads are always stopped
+	// during command exection.
+	return true 
 }
 
 func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {

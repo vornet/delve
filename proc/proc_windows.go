@@ -7,6 +7,7 @@ import "C"
 import (
 	"debug/pe"
 	"debug/gosym"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -80,8 +81,22 @@ func Attach(pid int) (*Process, error) {
 }
 
 func (dbp *Process) Kill() (err error) {
-	fmt.Println("Kill")
-	return fmt.Errorf("Not implemented: Kill")
+	if dbp.exited {
+		return nil
+	}
+	if !dbp.Threads[dbp.Pid].Stopped() {
+		return errors.New("process must be stopped in order to kill it")
+	}
+	proc, err := os.FindProcess(dbp.Pid)
+	if err != nil {
+		return err
+	}
+	err = proc.Kill()
+	if err != nil {
+		return err
+	}
+	dbp.exited = true
+	return
 }
 
 func (dbp *Process) requestManualStop() (err error) {
@@ -90,8 +105,12 @@ func (dbp *Process) requestManualStop() (err error) {
 }
 
 func (dbp *Process) updateThreadList() error {
-	fmt.Println("Did not update the thread list - I think this will not be necessary?")
+	// TODO: Currently we are ignoring this request since we assume that
+	// threads are being tracked as they are created/killed. 
 	
+	// TODO: This is a hack to make sure that we switch to an active 
+	// thread if updateThreadList is called without any CurrentThread set.
+	// This should only happen at startup, and likely this can be refactored.
 	for threadID := range dbp.Threads {
 		if dbp.CurrentThread == nil {
 			dbp.SwitchThread(threadID)
