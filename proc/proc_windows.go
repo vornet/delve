@@ -139,10 +139,13 @@ func (dbp *Process) parseDebugFrame(exe *pe.File, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if sec := exe.Section(".debug_frame"); sec != nil {
-		debugFrame, err := exe.Section(".debug_frame").Data()
-		if err != nil {
+		debugFrame, err := sec.Data()
+		if err != nil && uint32(len(debugFrame)) < sec.Size {
 			fmt.Println("could not get .debug_frame section", err)
 			os.Exit(1)
+		}
+		if 0 < sec.VirtualSize && sec.VirtualSize < sec.Size {
+			debugFrame = debugFrame[:sec.VirtualSize]
 		}
 		dbp.frameEntries = frame.Parse(debugFrame)
 	} else {
@@ -244,10 +247,13 @@ func (dbp *Process) parseDebugLineInfo(exe *pe.File, wg *sync.WaitGroup) {
 	defer wg.Done()
 		
 	if sec := exe.Section(".debug_line"); sec != nil {
-		debugLine, err := exe.Section(".debug_line").Data()
-		if err != nil {
+		debugLine, err := sec.Data()
+		if err != nil && uint32(len(debugLine)) < sec.Size {
 			fmt.Println("could not get .debug_line section", err)
 			os.Exit(1)
+		}
+		if 0 < sec.VirtualSize && sec.VirtualSize < sec.Size {
+			debugLine = debugLine[:sec.VirtualSize]
 		}
 		dbp.lineInfo = line.Parse(debugLine)
 	} else {
@@ -258,22 +264,23 @@ func (dbp *Process) parseDebugLineInfo(exe *pe.File, wg *sync.WaitGroup) {
 
 func (dbp *Process) findExecutable(path string) (*pe.File, error) {
 	if path == "" {
+		// TODO: When is this needed?
 		path = fmt.Sprintf("/proc/%d/exe", dbp.Pid)
 	}
 	f, err := os.OpenFile(path, 0, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
-	elfFile, err := pe.NewFile(f)
+	peFile, err := pe.NewFile(f)
 	if err != nil {
 		return nil, err
 	}
-	data, err := elfFile.DWARF()
+	data, err := peFile.DWARF()
 	if err != nil {
 		return nil, err
 	}
 	dbp.dwarf = data
-	return elfFile, nil
+	return peFile, nil
 }
 
 func (dbp *Process) trapWait(pid int) (*Thread, error) {
