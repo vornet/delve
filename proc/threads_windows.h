@@ -16,5 +16,6 @@ typedef struct THREAD_BASIC_INFORMATION
 } THREAD_BASIC_INFORMATION,*PTHREAD_BASIC_INFORMATION;
 
 SIZE_T read_memory(HANDLE hProcess, void* addr, void *d, int len);
-
+SIZE_T write_memory(HANDLE hProcess, void* addr, void *d, int len);
+BOOL continue_debugger(DWORD processId, DWORD threadId);
 int thread_basic_information(HANDLE h, PTHREAD_BASIC_INFORMATION addr);

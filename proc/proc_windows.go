@@ -50,14 +50,17 @@ func Launch(cmd []string) (*Process, error) {
 		return nil, err
 	}
 	defer sys.CloseHandle(sys.Handle(pi.Thread))
-	 
+	
 	dbp := New(int(pi.ProcessId))
 	
 	var hProcess C.HANDLE
 	var hThread C.HANDLE
 	var threadID C.int
 	
-	res, err := C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
+	var res C.int
+	dbp.execPtraceFunc(func() {
+		res, err = C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
+	})
 	if res != 0 {
 		return nil, err 	
 	}
@@ -87,7 +90,6 @@ func (dbp *Process) requestManualStop() (err error) {
 }
 
 func (dbp *Process) updateThreadList() error {
-	fmt.Println("updateThreadList")
 	fmt.Println("Did not update the thread list - I think this will not be necessary?")
 	
 	for threadID := range dbp.Threads {
@@ -100,7 +102,6 @@ func (dbp *Process) updateThreadList() error {
 }
 
 func (dbp *Process) addThread(hThread C.HANDLE, threadID int, attach bool) (*Thread, error) {
-	fmt.Println("addThread")
 	if thread, ok := dbp.Threads[threadID]; ok {
 		return thread, nil
 	}
@@ -116,7 +117,6 @@ func (dbp *Process) addThread(hThread C.HANDLE, threadID int, attach bool) (*Thr
 }
 
 func (dbp *Process) parseDebugFrame(exe *pe.File, wg *sync.WaitGroup) {
-	fmt.Println("parseDebugFrame")
 	defer wg.Done()
 
 	if sec := exe.Section(".debug_frame"); sec != nil {
@@ -130,7 +130,6 @@ func (dbp *Process) parseDebugFrame(exe *pe.File, wg *sync.WaitGroup) {
 		fmt.Println("could not find .debug_frame section in binary")
 		os.Exit(1)
 	}
-	fmt.Println("#success parseDebugFrame")
 }
 
 // Borrowed from https://golang.org/src/cmd/internal/objfile/pe.go
@@ -204,7 +203,6 @@ func pcln(exe *pe.File) (textStart uint64, symtab, pclntab []byte, err error) {
 }
 
 func (dbp *Process) obtainGoSymbols(exe *pe.File, wg *sync.WaitGroup) {
-	fmt.Println("obtainGoSymbols")
 	defer wg.Done()
 	
 	_, symdat, pclndat, err := pcln(exe)
@@ -221,11 +219,9 @@ func (dbp *Process) obtainGoSymbols(exe *pe.File, wg *sync.WaitGroup) {
 	}
 
 	dbp.goSymTable = tab
-	fmt.Println("#success obtainGoSymbols")
 }
 
 func (dbp *Process) parseDebugLineInfo(exe *pe.File, wg *sync.WaitGroup) {
-	fmt.Println("parseDebugLineInfo")
 	defer wg.Done()
 		
 	if sec := exe.Section(".debug_line"); sec != nil {
@@ -239,11 +235,9 @@ func (dbp *Process) parseDebugLineInfo(exe *pe.File, wg *sync.WaitGroup) {
 		fmt.Println("could not find .debug_line section in binary")
 		os.Exit(1)
 	}
-	fmt.Println("#success parseDebugLineInfo")
 }
 
 func (dbp *Process) findExecutable(path string) (*pe.File, error) {
-	fmt.Println("findExecutable")
 	if path == "" {
 		path = fmt.Sprintf("/proc/%d/exe", dbp.Pid)
 	}
@@ -264,19 +258,30 @@ func (dbp *Process) findExecutable(path string) (*pe.File, error) {
 }
 
 func (dbp *Process) trapWait(pid int) (*Thread, error) {
-	fmt.Println("trapWait")
-	sum := C.add(3,4)
-	fmt.Println(sum)
-	return nil, fmt.Errorf("Not implemented")
+	var res C.BOOL
+	var tid int
+	dbp.execPtraceFunc(func() {
+		var threadID C.DWORD
+		res = C.wait(&threadID)
+		tid = int(threadID)
+	})
+	if res < 0 {
+		return nil, fmt.Errorf("Failed to continue debugging")	
+	}
+	thread, err := dbp.handleBreakpointOnThread(tid)
+	if err != nil {
+		return nil, err
+	}
+	return thread, nil
 }
 
 func wait(pid, tgid, options int) (int, *sys.WaitStatus, error) {
 	fmt.Println("wait")
-	return 0, nil, fmt.Errorf("Not implemented")
+	return 0, nil, fmt.Errorf("Not implemented: wait")
 }
 
 func killProcess(pid int) (err error) {
 	fmt.Println("killProcess")
-	return fmt.Errorf("Not implemented")
+	return fmt.Errorf("Not implemented: killProcess")
 }
 

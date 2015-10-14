@@ -6,6 +6,6 @@
 
 int add(int x, int y);
 
-void wait();
+BOOL wait(DWORD* threadID);
 
 int waitForCreateProcessEvent(HANDLE* hProcess, HANDLE* hThread, int* threadID);

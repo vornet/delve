@@ -34,7 +34,6 @@ type Regs struct {
 }
 
 func (r *Regs) String() string {
-	fmt.Println("registers.String")
 	var buf bytes.Buffer
 	var regs = []struct {
 		k string
@@ -70,32 +69,41 @@ func (r *Regs) String() string {
 }
 
 func (r *Regs) PC() uint64 {
-	fmt.Println("registers.PC")
 	return r.rip
 }
 
 func (r *Regs) SP() uint64 {
-	fmt.Println("registers.SP")
 	return r.rsp
 }
 
 func (r *Regs) CX() uint64 {
-	fmt.Println("registers.CX")
 	return r.rcx
 }
 
 func (r *Regs) TLS() uint64 {
-	fmt.Println("registers.TLS")
 	return r.tls
 }
 
 func (r *Regs) SetPC(thread *Thread, pc uint64) error {
-	fmt.Println("registers.SetPC")
-	return fmt.Errorf("Not implemented: SetPC")
+	var context C.CONTEXT
+	context.ContextFlags = C.CONTEXT_ALL;
+	
+	res, err := C.GetThreadContext(thread.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+	
+	context.Rip = C.DWORD64(pc)
+	
+	res, err = C.SetThreadContext(thread.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+	
+	return nil
 }
 
 func registers(thread *Thread) (Registers, error) {
-	fmt.Println("registers.registers")
 	var context C.CONTEXT
 	
 	context.ContextFlags = C.CONTEXT_ALL;
@@ -141,10 +149,10 @@ func registers(thread *Thread) (Registers, error) {
 
 func (thread *Thread) saveRegisters() (Registers, error) {
 	fmt.Println("registers.saveRegisters")
-	return nil, fmt.Errorf("Not implemented")
+	return nil, fmt.Errorf("Not implemented: saveRegisters")
 }
 
 func (thread *Thread) restoreRegisters() error {
 	fmt.Println("registers.restoreRegisters")
-	return fmt.Errorf("Not implemented")
+	return fmt.Errorf("Not implemented: restoreRegisters")
 }

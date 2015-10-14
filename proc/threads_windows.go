@@ -15,8 +15,8 @@ type OSSpecificDetails struct {
 }
 
 func (t *Thread) halt() (err error) {
-	fmt.Println("halt")
-	return fmt.Errorf("Not implemented: halt")
+	fmt.Println("Ignoring the request to halt - I believe this is guaranteed to already be halted...")
+	return nil
 }
 
 func (t *Thread) singleStep() error {
@@ -25,8 +25,16 @@ func (t *Thread) singleStep() error {
 }
 
 func (t *Thread) resume() error {
-	fmt.Println("resume")
-	return fmt.Errorf("Not implemented: resume")
+	fmt.Println(t.dbp.Pid, t.Id)
+	var res C.BOOL
+	t.dbp.execPtraceFunc(func() {
+		res = C.continue_debugger(C.DWORD(t.dbp.Pid), C.DWORD(t.Id))
+	})
+	if res == 0 {
+		errCode := int(C.GetLastError())
+		return fmt.Errorf("Could not continue: %d", errCode)	
+	}
+	return nil
 }
 
 func (thread *Thread) blocked() bool {
@@ -40,12 +48,19 @@ func (thread *Thread) stopped() bool {
 }
 
 func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
-	fmt.Println("writeMemory")
-	return 0, fmt.Errorf("Not implemented: writeMemory")
+	var (
+		vm_data = unsafe.Pointer(&data[0])
+		vm_addr = unsafe.Pointer(addr)
+		length  = C.int(len(data))
+	)
+	ret := C.write_memory(thread.dbp.os.hProcess, vm_addr, vm_data, length)
+	if ret < 0 {
+		return int(ret), fmt.Errorf("could not write memory")
+	}
+	return int(ret), nil
 }
 
 func (thread *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
-	fmt.Println("readMemory")
 	if size == 0 {
 		return nil, nil
 	}
@@ -56,12 +71,7 @@ func (thread *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
 		length  = C.int(size)
 	)
 
-	fmt.Println(thread.dbp.os.hProcess)
-	fmt.Println(addr)
-	fmt.Println(size)
-	fmt.Println(length)
 	ret := C.read_memory(thread.dbp.os.hProcess, vm_addr, vm_data, length)
-	fmt.Println(buf)
 	if ret < 0 {
 		return nil, fmt.Errorf("could not read memory")
 	}
