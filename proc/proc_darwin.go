@@ -328,4 +328,3 @@ func killProcess(pid int) (err error) {
 	err = sys.Kill(pid, sys.SIGINT)
 	return err
 }
-

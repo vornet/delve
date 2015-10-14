@@ -231,9 +231,9 @@ func (dbp *Process) ClearBreakpoint(addr uint64) (*Breakpoint, error) {
 }
 
 // Returns the status of the current main thread context.
-//func (dbp *Process) Status() *sys.WaitStatus {
-//	return dbp.CurrentThread.Status
-//}
+func (dbp *Process) Status() *WaitStatus {
+	return dbp.CurrentThread.Status
+}
 
 // Step over function calls.
 func (dbp *Process) Next() error {

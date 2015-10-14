@@ -284,4 +284,3 @@ func killProcess(pid int) (err error) {
 	fmt.Println("killProcess")
 	return fmt.Errorf("Not implemented: killProcess")
 }
-

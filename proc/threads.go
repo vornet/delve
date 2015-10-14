@@ -271,18 +271,11 @@ func (thread *Thread) GetG() (g *G, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println(thread)
-	// fmt.Println(thread.dbp)
-	// fmt.Println(thread.dbp.arch)
 	if thread.dbp.arch.GStructOffset() == 0 {
 		// GetG was called through SwitchThread / updateThreadList during initialization
 		// thread.dbp.arch isn't setup yet (it needs a CurrentThread to read global variables from)
 		return nil, fmt.Errorf("g struct offset not initialized")
 	}
-	// fmt.Println("Reading Goroutine data from TLS:")
-	// fmt.Println(regs.TLS())
-	// fmt.Println(thread.dbp.arch.GStructOffset())
-	// fmt.Println(thread.dbp.arch.PtrSize())
 	gaddrbs, err := thread.readMemory(uintptr(regs.TLS()+thread.dbp.arch.GStructOffset()), thread.dbp.arch.PtrSize())
 	if err != nil {
 		return nil, err

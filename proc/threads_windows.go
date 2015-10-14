@@ -25,7 +25,6 @@ func (t *Thread) singleStep() error {
 }
 
 func (t *Thread) resume() error {
-	fmt.Println(t.dbp.Pid, t.Id)
 	var res C.BOOL
 	t.dbp.execPtraceFunc(func() {
 		res = C.continue_debugger(C.DWORD(t.dbp.Pid), C.DWORD(t.Id))

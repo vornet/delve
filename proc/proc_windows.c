@@ -1,9 +1,5 @@
 #include "proc_windows.h"
 
-int add(int x, int y) {
-	return x + y;
-}
-
 BOOL wait(DWORD* threadID) {
 	DEBUG_EVENT debug_event = {0};
 	for(;;) {
@@ -37,9 +33,6 @@ BOOL wait(DWORD* threadID) {
 					debug_event.u.Exception.ExceptionRecord.NumberParameters,
 					debug_event.u.Exception.dwFirstChance
 				);
-				for(int i = 0; i < debug_event.u.Exception.ExceptionRecord.NumberParameters; i++) {
-					printf("\t %d\n", debug_event.u.Exception.ExceptionRecord.ExceptionInformation[i]);
-				}
 				break;
 			case EXIT_THREAD_DEBUG_EVENT:
 				printf("Exit thread: %d\n", debug_event.u.ExitThread.dwExitCode);
