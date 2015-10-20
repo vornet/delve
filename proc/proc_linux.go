@@ -251,7 +251,7 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 		}
 		th, ok := dbp.Threads[wpid]
 		if ok {
-			th.Status = status
+			th.Status = (*WaitStatus)(status)
 		}
 		if status.Exited() {
 			if wpid == dbp.Pid {

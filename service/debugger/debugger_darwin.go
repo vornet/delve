@@ -2,6 +2,7 @@ package debugger
 
 import (
 	"fmt"
+	sys "golang.org/x/sys/unix"
 )
 
 func attachErrorMessage(pid int, err error) error {
@@ -10,5 +11,5 @@ func attachErrorMessage(pid int, err error) error {
 }
 
 func stopProcess(pid int) error {
-	return sys.Kill(d.ProcessPid(), sys.SIGSTOP)
+	return sys.Kill(pid, sys.SIGSTOP)
 }
