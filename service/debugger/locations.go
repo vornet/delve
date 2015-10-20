@@ -291,7 +291,7 @@ func (loc *NormalLocationSpec) Find(d *Debugger, pc uint64, locStr string) ([]ap
 			}
 		}
 	}
-	
+
 	switch len(candidates) {
 	case 1:
 		var addr uint64

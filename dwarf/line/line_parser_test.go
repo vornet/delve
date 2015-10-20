@@ -34,7 +34,7 @@ func grabDebugLineSection(p string, t *testing.T) []byte {
 
 	mf, _ := macho.NewFile(f)
 	data, _ := mf.Section("__debug_line").Data()
-	
+
 	return data
 }
 
