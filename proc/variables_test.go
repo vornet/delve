@@ -97,6 +97,9 @@ func TestVariableEvaluation(t *testing.T) {
 		{"f", "main.barfoo", "", "func()", nil},
 		{"ba", "[]int len: 200, cap: 200, [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,...+136 more]", "", "struct []int", nil},
 		{"ms", "main.Nest {Level: 0, Nest: *main.Nest {Level: 1, Nest: *main.Nest {...}}}", "", "main.Nest", nil},
+		{"ms.Nest.Nest", "*main.Nest {Level: 2, Nest: *main.Nest {Level: 3, Nest: *main.Nest {...}}}", "", "*main.Nest", nil},
+		{"ms.Nest.Nest.Nest.Nest.Nest", "*main.Nest nil", "", "*main.Nest", nil},
+		{"ms.Nest.Nest.Nest.Nest.Nest.Nest", "", "", "*main.Nest", fmt.Errorf("ms.Nest.Nest.Nest.Nest.Nest is nil")},
 		{"main.p1", "10", "12", "int", nil},
 		{"p1", "10", "13", "int", nil},
 		{"NonExistent", "", "", "", fmt.Errorf("could not find symbol value for NonExistent")},
@@ -386,5 +389,31 @@ func TestPointerSetting(t *testing.T) {
 		// change the value of i2 check that p1 also changes
 		assertNoError(setVariable(p, "i2", "5"), t, "SetVariable()")
 		pval("*5")
+	})
+}
+
+func TestEmbeddedStruct(t *testing.T) {
+	withTestProcess("testvariables4", t, func(p *Process, fixture protest.Fixture) {
+		testcases := []varTest{
+			{"b.val", "-314", "", "int", nil},
+			{"b.A.val", "-314", "", "int", nil},
+			{"b.a.val", "42", "", "int", nil},
+			{"b.ptr.val", "1337", "", "int", nil},
+			{"b.C.s", "hello", "", "struct string", nil},
+			{"b.s", "hello", "", "struct string", nil},
+		}
+		assertNoError(p.Continue(), t, "Continue()")
+
+		for _, tc := range testcases {
+			variable, err := evalVariable(p, tc.name)
+			if tc.err == nil {
+				assertNoError(err, t, "EvalVariable() returned an error")
+				assertVariable(t, variable, tc)
+			} else {
+				if tc.err.Error() != err.Error() {
+					t.Fatalf("Unexpected error. Expected %s got %s", tc.err.Error(), err.Error())
+				}
+			}
+		}
 	})
 }

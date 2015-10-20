@@ -178,6 +178,10 @@ func TestBreakpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		if bp.TotalHitCount != 1 {
+			t.Fatalf("Breakpoint should be hit once, got %d\n", bp.TotalHitCount)
+		}
+
 		if pc-1 != bp.Addr && pc != bp.Addr {
 			f, l, _ := p.goSymTable.PCToLine(pc)
 			t.Fatalf("Break not respected:\nPC:%#v %s:%d\nFN:%#v \n", pc, f, l, bp.Addr)
@@ -798,5 +802,15 @@ func TestProcessReceivesSIGCHLD(t *testing.T) {
 		if !ok {
 			t.Fatalf("Continue() returned unexpected error type %s", err)
 		}
+	})
+}
+
+func TestIssue239(t *testing.T) {
+	withTestProcess("is sue239", t, func(p *Process, fixture protest.Fixture) {
+		pos, _, err := p.goSymTable.LineToPC(fixture.Source, 17)
+		assertNoError(err, t, "LineToPC()")
+		_, err = p.SetBreakpoint(pos)
+		assertNoError(err, t, fmt.Sprintf("SetBreakpoint(%d)", pos))
+		assertNoError(p.Continue(), t, fmt.Sprintf("Continue()"))
 	})
 }

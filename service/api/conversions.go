@@ -2,23 +2,32 @@ package api
 
 import (
 	"debug/gosym"
+	"strconv"
 
 	"github.com/derekparker/delve/proc"
 )
 
 // convertBreakpoint converts an internal breakpoint to an API Breakpoint.
 func ConvertBreakpoint(bp *proc.Breakpoint) *Breakpoint {
-	return &Breakpoint{
-		ID:           bp.ID,
-		FunctionName: bp.FunctionName,
-		File:         bp.File,
-		Line:         bp.Line,
-		Addr:         bp.Addr,
-		Tracepoint:   bp.Tracepoint,
-		Stacktrace:   bp.Stacktrace,
-		Goroutine:    bp.Goroutine,
-		Variables:    bp.Variables,
+	b := &Breakpoint{
+		ID:            bp.ID,
+		FunctionName:  bp.FunctionName,
+		File:          bp.File,
+		Line:          bp.Line,
+		Addr:          bp.Addr,
+		Tracepoint:    bp.Tracepoint,
+		Stacktrace:    bp.Stacktrace,
+		Goroutine:     bp.Goroutine,
+		Variables:     bp.Variables,
+		TotalHitCount: bp.TotalHitCount,
 	}
+
+	b.HitCount = map[string]uint64{}
+	for idx := range bp.HitCount {
+		b.HitCount[strconv.Itoa(idx)] = bp.HitCount[idx]
+	}
+
+	return b
 }
 
 // convertThread converts an internal thread to an API Thread.
@@ -72,11 +81,10 @@ func ConvertFunction(fn *gosym.Func) *Function {
 // convertGoroutine converts an internal Goroutine to an API Goroutine.
 func ConvertGoroutine(g *proc.G) *Goroutine {
 	return &Goroutine{
-		ID:       g.Id,
-		PC:       g.PC,
-		File:     g.File,
-		Line:     g.Line,
-		Function: ConvertFunction(g.Func),
+		ID:             g.Id,
+		CurrentLoc:     ConvertLocation(g.CurrentLoc),
+		UserCurrentLoc: ConvertLocation(g.UserCurrent()),
+		GoStatementLoc: ConvertLocation(g.Go()),
 	}
 }
 

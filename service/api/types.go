@@ -42,6 +42,10 @@ type Breakpoint struct {
 	Goroutine bool `json:"goroutine"`
 	// variables to evaluate
 	Variables []string `json:"variables,omitempty"`
+	// number of times a breakpoint has been reached in a certain goroutine
+	HitCount map[string]uint64 `json:"hitCount"`
+	// number of times a breakpoint has been reached
+	TotalHitCount uint64 `json:"totalHitCount"`
 }
 
 // Thread is a thread within the debugged process.
@@ -110,14 +114,12 @@ type Variable struct {
 type Goroutine struct {
 	// ID is a unique identifier for the goroutine.
 	ID int `json:"id"`
-	// PC is the current program counter for the goroutine.
-	PC uint64 `json:"pc"`
-	// File is the file for the program counter.
-	File string `json:"file"`
-	// Line is the line number for the program counter.
-	Line int `json:"line"`
-	// Function is function information at the program counter. May be nil.
-	Function *Function `json:"function,omitempty"`
+	// Current location of the goroutine
+	CurrentLoc Location `json:"currentLoc"`
+	// Current location of the goroutine, excluding calls inside runtime
+	UserCurrentLoc Location `json:"userCurrentLoc"`
+	// Location of the go instruction that started this goroutine
+	GoStatementLoc Location `json:"goStatementLoc"`
 }
 
 // DebuggerCommand is a command which changes the debugger's execution state.

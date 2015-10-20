@@ -116,7 +116,7 @@ func (dbp *Process) Kill() (err error) {
 			break
 		}
 	}
-	dbp.exited = true
+	dbp.postExit()
 	return
 }
 
@@ -272,11 +272,11 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 
 		switch port {
 		case dbp.os.notificationPort:
-			_, status, err := wait(dbp.Pid, dbp.Pid, 0)
+			_, status, err := dbp.wait(dbp.Pid, 0)
 			if err != nil {
 				return nil, err
 			}
-			dbp.exited = true
+			dbp.postExit()
 			return nil, ProcessExitedError{Pid: dbp.Pid, Status: status.ExitStatus()}
 
 		case C.MACH_RCV_INTERRUPTED:
@@ -318,7 +318,11 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 	}
 }
 
-func wait(pid, tgid, options int) (int, *sys.WaitStatus, error) {
+func (dbp *Process) loadProcessInformation(wg *sync.WaitGroup) {
+	wg.Done()
+}
+
+func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	var status sys.WaitStatus
 	wpid, err := sys.Wait4(pid, &status, options, nil)
 	return wpid, &status, err

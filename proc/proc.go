@@ -140,7 +140,8 @@ func (dbp *Process) LoadInformation(path string) error {
 		return err
 	}
 
-	wg.Add(3)
+	wg.Add(4)
+	go dbp.loadProcessInformation(&wg)
 	go dbp.parseDebugFrame(exe, &wg)
 	go dbp.obtainGoSymbols(exe, &wg)
 	go dbp.parseDebugLineInfo(exe, &wg)
@@ -183,9 +184,8 @@ func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOf
 		if len(lines) > 0 {
 			linePC, _, err := dbp.goSymTable.LineToPC(filename, lines[0])
 			return linePC, err
-		} else {
-			return fn.Entry, nil
 		}
+		return fn.Entry, nil
 	} else if lineOffset > 0 {
 		filename, lineno, _ := dbp.goSymTable.PCToLine(fn.Entry)
 		breakAddr, _, err := dbp.goSymTable.LineToPC(filename, lineno+lineOffset)
@@ -330,6 +330,7 @@ func (dbp *Process) setChanRecvBreakpoints() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	for _, g := range allg {
 		if g.ChanRecvBlocked() {
 			ret, err := g.chanRecvReturnAddr(dbp)
@@ -340,6 +341,11 @@ func (dbp *Process) setChanRecvBreakpoints() (int, error) {
 				return 0, err
 			}
 			if _, err = dbp.SetTempBreakpoint(ret); err != nil {
+				if _, ok := err.(BreakpointExistsError); ok {
+					// Ignore duplicate breakpoints in case if multiple
+					// goroutines wait on the same channel
+					continue
+				}
 				return 0, err
 			}
 			count++
@@ -479,9 +485,7 @@ func (dbp *Process) GoroutinesInfo() ([]*G, error) {
 			}
 			g.thread = thread
 			// Prefer actual thread location information.
-			g.File = loc.File
-			g.Line = loc.Line
-			g.Func = loc.Fn
+			g.CurrentLoc = *loc
 		}
 		if g.Status != Gdead {
 			allg = append(allg, g)
@@ -568,7 +572,7 @@ func initializeDebugProcess(dbp *Process, path string, attach bool) (*Process, e
 		if err != nil {
 			return nil, err
 		}
-		_, _, err = wait(dbp.Pid, dbp.Pid, 0)
+		_, _, err = dbp.wait(dbp.Pid, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -636,6 +640,10 @@ func (dbp *Process) handleBreakpointOnThread(id int) (*Thread, error) {
 		if err = thread.SetPC(bp.Addr); err != nil {
 			return nil, err
 		}
+		if g, err := thread.GetG(); err == nil {
+			thread.CurrentBreakpoint.HitCount[g.Id]++
+		}
+		thread.CurrentBreakpoint.TotalHitCount++
 		return thread, nil
 	}
 	if dbp.halt {
@@ -669,7 +677,7 @@ func (dbp *Process) run(fn func() error) error {
 
 func (dbp *Process) handlePtraceFuncs() {
 	// We must ensure here that we are running on the same thread during
-	// the execution of dbg. This is due to the fact that ptrace(2) expects
+	// while invoking the ptrace(2) syscall. This is due to the fact that ptrace(2) expects
 	// all commands after PTRACE_ATTACH to come from the same thread.
 	runtime.LockOSThread()
 
@@ -757,4 +765,10 @@ func (dbp *Process) ConvertEvalScope(gid, frame int) (*EvalScope, error) {
 	out.PC, out.CFA = locs[frame].Current.PC, locs[frame].CFA
 
 	return &out, nil
+}
+
+func (dbp *Process) postExit() {
+	dbp.exited = true
+	close(dbp.ptraceChan)
+	close(dbp.ptraceDoneChan)
 }

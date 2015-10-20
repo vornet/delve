@@ -3,6 +3,9 @@ UNAME=$(shell uname)
 PREFIX=github.com/derekparker/delve
 GOVERSION=$(shell go version)
 
+# Workaround for GO15VENDOREXPERIMENT bug (https://github.com/golang/go/issues/11659)
+ALL_PACKAGES=$(shell go list ./... | grep -v /vendor/)
+
 # We must compile with -ldflags="-s" to omit
 # DWARF info on OSX when compiling with the
 # 1.5 toolchain. Otherwise the resulting binary
@@ -10,63 +13,46 @@ GOVERSION=$(shell go version)
 # unable to execute.
 # See https://github.com/golang/go/issues/11887#issuecomment-126117692.
 ifeq "$(UNAME)" "Darwin"
-	FLAGS=-ldflags="-s"
+	BUILD_FLAGS=-ldflags="-s"
+	TEST_FLAGS=-exec=$(shell pwd)/scripts/testsign
+	DARWIN="true"
 endif
 
 # If we're on OSX make sure the proper CERT env var is set.
 check-cert:
 ifneq "$(TRAVIS)" "true"
-ifeq "$(UNAME)" "Darwin"
+ifdef DARWIN
 ifeq "$(CERT)" ""
 	$(error You must provide a CERT environment variable in order to codesign the binary.)
 endif
 endif
 endif
 
-deps: check-cert
-ifeq "$(SKIP_DEPS)" ""
-	go get -u github.com/peterh/liner
-	go get -u github.com/spf13/cobra
-	go get -u golang.org/x/sys/windows
-	go get -u github.com/davecheney/profile
-	go get -u gopkg.in/yaml.v2
-endif
-
-build: deps
-	go build $(FLAGS) github.com/derekparker/delve/cmd/dlv
-ifeq "$(UNAME)" "Darwin"
+build: check-cert
+	go build $(BUILD_FLAGS) github.com/derekparker/delve/cmd/dlv
+ifdef DARWIN
 	codesign -s $(CERT) ./dlv
 endif
 
-install: deps
-	go install $(FLAGS) github.com/derekparker/delve/cmd/dlv
-ifeq "$(UNAME)" "Darwin"
+install: check-cert
+	go install $(BUILD_FLAGS) github.com/derekparker/delve/cmd/dlv
+ifdef DARWIN
 	codesign -s $(CERT) $(GOPATH)/bin/dlv
 endif
 
-test: deps
-ifeq "$(UNAME)" "Darwin"
+test: check-cert
 ifeq "$(TRAVIS)" "true"
-	sudo -E go test -v ./...
+ifdef DARWIN
+	sudo -E go test -v $(ALL_PACKAGES)
 else
-	go test $(PREFIX)/terminal $(PREFIX)/dwarf/frame $(PREFIX)/dwarf/op $(PREFIX)/dwarf/util $(PREFIX)/source $(PREFIX)/dwarf/line
-	go test -c $(FLAGS) $(PREFIX)/proc && codesign -s $(CERT) ./proc.test && ./proc.test $(TESTFLAGS) -test.v && rm ./proc.test
-	go test -c  $(FLAGS) $(PREFIX)/service/test && codesign -s $(CERT) ./test.test && ./test.test $(TESTFLAGS) -test.v && rm ./test.test
+	go test $(TEST_FLAGS) $(BUILD_FLAGS) $(ALL_PACKAGES)
 endif
 else
-	go test -v ./...
+	go test $(TEST_FLAGS) $(BUILD_FLAGS) $(ALL_PACKAGES)
 endif
 
 test-proc-run:
-ifeq "$(UNAME)" "Darwin"
-	go test -c $(FLAGS) $(PREFIX)/proc && codesign -s $(CERT) ./proc.test && ./proc.test -test.run $(RUN) && rm ./proc.test
-else
-	go test $(PREFIX) -run $(RUN)
-endif
+	go test $(TEST_FLAGS) $(BUILD_FLAGS) $(PREFIX)/proc -run $(RUN)
 
 test-integration-run:
-ifeq "$(UNAME)" "Darwin"
-	go test -c $(FLAGS) $(PREFIX)/service/test && codesign -s $(CERT) ./test.test && ./test.test -test.run $(RUN) && rm ./test.test
-else
-	go test $(PREFIX)/service/rest -run $(RUN)
-endif
+	go test $(TEST_FLAGS) $(BUILD_FLAGS) $(PREFIX)/service/test -run $(RUN)

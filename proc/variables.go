@@ -3,7 +3,6 @@ package proc
 import (
 	"bytes"
 	"debug/dwarf"
-	"debug/gosym"
 	"encoding/binary"
 	"fmt"
 	"go/ast"
@@ -73,16 +72,16 @@ type G struct {
 	WaitReason string // Reason for goroutine being parked.
 	Status     uint64
 
-	// Information on goroutine location.
-	File string
-	Line int
-	Func *gosym.Func
+	// Information on goroutine location
+	CurrentLoc Location
 
 	// PC of entry to top-most deferred function.
 	DeferPC uint64
 
 	// Thread that this goroutine is currently allocated to
 	thread *Thread
+
+	dbp *Process
 }
 
 // Scope for variable evaluation
@@ -125,9 +124,18 @@ func newVariable(name string, addr uintptr, dwarfType dwarf.Type, thread *Thread
 }
 
 func (v *Variable) toField(field *dwarf.StructField) (*Variable, error) {
+	if v.Addr == 0 {
+		return nil, fmt.Errorf("%s is nil", v.Name)
+	}
+
 	name := ""
 	if v.Name != "" {
-		name = fmt.Sprintf("%s.%s", v.Name, field.Name)
+		parts := strings.Split(field.Name, ".")
+		if len(parts) > 1 {
+			name = fmt.Sprintf("%s.%s", v.Name, parts[1])
+		} else {
+			name = fmt.Sprintf("%s.%s", v.Name, field.Name)
+		}
 	}
 	return newVariable(name, uintptr(int64(v.Addr)+field.ByteOffset), field.Type, v.thread)
 }
@@ -152,7 +160,7 @@ func (g *G) ChanRecvBlocked() bool {
 
 // chanRecvReturnAddr returns the address of the return from a channel read.
 func (g *G) chanRecvReturnAddr(dbp *Process) (uint64, error) {
-	locs, err := dbp.stacktrace(g.PC, g.SP, 4)
+	locs, err := dbp.GoroutineStacktrace(g, 4)
 	if err != nil {
 		return 0, err
 	}
@@ -283,31 +291,59 @@ func parseG(thread *Thread, gaddr uint64, deref bool) (*G, error) {
 		GoPC:       gopc,
 		PC:         pc,
 		SP:         sp,
-		File:       f,
-		Line:       l,
-		Func:       fn,
+		CurrentLoc: Location{PC: pc, File: f, Line: l, Fn: fn},
 		WaitReason: waitreason,
 		DeferPC:    deferPC,
 		Status:     atomicStatus,
+		dbp:        thread.dbp,
 	}
 	return g, nil
 }
 
+// From $GOROOT/src/runtime/traceback.go:597
+// isExportedRuntime reports whether name is an exported runtime function.
+// It is only for runtime functions, so ASCII A-Z is fine.
+func isExportedRuntime(name string) bool {
+	const n = len("runtime.")
+	return len(name) > n && name[:n] == "runtime." && 'A' <= name[n] && name[n] <= 'Z'
+}
+
+func (g *G) UserCurrent() Location {
+	pc, sp := g.PC, g.SP
+	if g.thread != nil {
+		regs, err := g.thread.Registers()
+		if err != nil {
+			return g.CurrentLoc
+		}
+		pc, sp = regs.PC(), regs.SP()
+	}
+	it := newStackIterator(g.dbp, pc, sp)
+	for it.Next() {
+		frame := it.Frame()
+		name := frame.Call.Fn.Name
+		if (strings.Index(name, ".") >= 0) && (!strings.HasPrefix(name, "runtime.") || isExportedRuntime(name)) {
+			return frame.Call
+		}
+	}
+	return g.CurrentLoc
+}
+
+func (g *G) Go() Location {
+	f, l, fn := g.dbp.goSymTable.PCToLine(g.GoPC)
+	return Location{PC: g.GoPC, File: f, Line: l, Fn: fn}
+}
+
 // Returns information for the named variable.
 func (scope *EvalScope) ExtractVariableInfo(name string) (*Variable, error) {
-	varName := name
-	memberName := ""
-	if strings.Contains(name, ".") {
-		idx := strings.Index(name, ".")
-		varName = name[:idx]
-		memberName = name[idx+1:]
-	}
+	parts := strings.Split(name, ".")
+	varName := parts[0]
+	memberNames := parts[1:]
 
 	v, err := scope.extractVarInfo(varName)
 	if err != nil {
 		origErr := err
 		// Attempt to evaluate name as a package variable.
-		if memberName != "" {
+		if len(memberNames) > 0 {
 			v, err = scope.packageVarAddr(name)
 		} else {
 			_, _, fn := scope.Thread.dbp.PCToLine(scope.PC)
@@ -320,7 +356,7 @@ func (scope *EvalScope) ExtractVariableInfo(name string) (*Variable, error) {
 		}
 		v.Name = name
 	} else {
-		if len(memberName) > 0 {
+		for _, memberName := range memberNames {
 			v, err = v.structMember(memberName)
 			if err != nil {
 				return nil, err
@@ -453,17 +489,44 @@ func (v *Variable) structMember(memberName string) (*Variable, error) {
 		return nil, err
 	}
 	structVar = structVar.resolveTypedefs()
-
 	switch t := structVar.dwarfType.(type) {
 	case *dwarf.StructType:
 		for _, field := range t.Field {
 			if field.Name != memberName {
 				continue
 			}
-			if structVar.Addr == 0 {
-				return nil, fmt.Errorf("%s is nil", v.Name)
-			}
 			return structVar.toField(field)
+		}
+		// Check for embedded field only if field was
+		// not a regular struct member
+		for _, field := range t.Field {
+			isEmbeddedStructMember :=
+				(field.Type.String() == ("struct " + field.Name)) ||
+					(len(field.Name) > 1 &&
+						field.Name[0] == '*' &&
+						field.Type.String()[1:] == ("struct "+field.Name[1:]))
+			if !isEmbeddedStructMember {
+				continue
+			}
+			// Check for embedded field referenced by type name
+			parts := strings.Split(field.Name, ".")
+			if len(parts) > 1 && parts[1] == memberName {
+				embeddedVar, err := structVar.toField(field)
+				if err != nil {
+					return nil, err
+				}
+				return embeddedVar, nil
+			}
+			// Recursively check for promoted fields on the embedded field
+			embeddedVar, err := structVar.toField(field)
+			if err != nil {
+				return nil, err
+			}
+			embeddedVar.Name = structVar.Name
+			embeddedField, err := embeddedVar.structMember(memberName)
+			if embeddedField != nil {
+				return embeddedField, nil
+			}
 		}
 		return nil, fmt.Errorf("%s has no member %s", v.Name, memberName)
 	default:

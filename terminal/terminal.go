@@ -14,13 +14,19 @@ import (
 	"github.com/derekparker/delve/service"
 )
 
-const historyFile string = ".dbg_history"
+const (
+	historyFile             string = ".dbg_history"
+	TerminalBlueEscapeCode  string = "\033[34m"
+	TerminalResetEscapeCode string = "\033[0m"
+)
 
 type Term struct {
-	client service.Client
-	prompt string
-	line   *liner.State
-	conf   *config.Config
+	client   service.Client
+	prompt   string
+	line     *liner.State
+	conf     *config.Config
+	dumb     bool
+	InitFile string
 }
 
 func New(client service.Client, conf *config.Config) *Term {
@@ -29,6 +35,7 @@ func New(client service.Client, conf *config.Config) *Term {
 		line:   liner.NewLiner(),
 		client: client,
 		conf:   conf,
+		dumb:   strings.ToLower(os.Getenv("TERM")) == "dumb",
 	}
 }
 
@@ -79,6 +86,13 @@ func (t *Term) Run() (error, int) {
 	f.Close()
 	fmt.Println("Type 'help' for list of commands.")
 
+	if t.InitFile != "" {
+		err := cmds.executeFile(t, t.InitFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error executing init file: %s\n", err)
+		}
+	}
+
 	var status int
 	for {
 		cmdstr, err := t.promptForInput()
@@ -93,7 +107,7 @@ func (t *Term) Run() (error, int) {
 
 		cmdstr, args := parseCommand(cmdstr)
 		cmd := cmds.Find(cmdstr)
-		if err := cmd(t.client, args...); err != nil {
+		if err := cmd(t, args...); err != nil {
 			if _, ok := err.(ExitRequestError); ok {
 				return t.handleExit()
 			}
@@ -109,6 +123,13 @@ func (t *Term) Run() (error, int) {
 	}
 
 	return nil, status
+}
+
+func (t *Term) Println(prefix, str string) {
+	if !t.dumb {
+		prefix = fmt.Sprintf("%s%s%s", TerminalBlueEscapeCode, prefix, TerminalResetEscapeCode)
+	}
+	fmt.Printf("%s%s\n", prefix, str)
 }
 
 func (t *Term) promptForInput() (string, error) {

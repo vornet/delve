@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -20,12 +21,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const version string = "0.9.0-alpha"
+const version string = "0.10.0-alpha"
 
 var (
-	Log      bool
-	Headless bool
-	Addr     string
+	Log        bool
+	Headless   bool
+	Addr       string
+	InitFile   string
+	BuildFlags string
 )
 
 func main() {
@@ -47,6 +50,8 @@ The goal of this tool is to provide a simple yet powerful interface for debuggin
 	rootCommand.PersistentFlags().StringVarP(&Addr, "listen", "l", "localhost:0", "Debugging server listen address.")
 	rootCommand.PersistentFlags().BoolVarP(&Log, "log", "", false, "Enable debugging server logging.")
 	rootCommand.PersistentFlags().BoolVarP(&Headless, "headless", "", false, "Run debug server only, in headless mode.")
+	rootCommand.PersistentFlags().StringVar(&InitFile, "init", "", "Init file, executed by the terminal client.")
+	rootCommand.PersistentFlags().StringVar(&BuildFlags, "build-flags", "", "Build flags, to be passed to the compiler.")
 
 	// 'version' subcommand.
 	versionCommand := &cobra.Command{
@@ -78,7 +83,7 @@ starts and attaches to it, and enables you to immediately begin debugging your p
 		Run: func(cmd *cobra.Command, args []string) {
 			status := func() int {
 				const debugname = "debug"
-				goBuild := exec.Command("go", "build", "-o", debugname, "-gcflags", "-N -l")
+				goBuild := exec.Command("go", "build", "-o", debugname, "-gcflags", "-N -l", BuildFlags)
 				goBuild.Stderr = os.Stderr
 				err := goBuild.Run()
 				if err != nil {
@@ -103,6 +108,12 @@ starts and attaches to it, and enables you to immediately begin debugging your p
 	execCommand := &cobra.Command{
 		Use:   "exec [./path/to/binary]",
 		Short: "Runs precompiled binary, attaches and begins debug session.",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return errors.New("you must provide a path to a binary")
+			}
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			os.Exit(execute(0, args, conf))
 		},
@@ -120,7 +131,7 @@ starts and attaches to it, and enables you to immediately begin debugging your p
 				const debugname = "debug"
 				var processArgs []string
 				if traceAttachPid == 0 {
-					goBuild := exec.Command("go", "build", "-o", debugname, "-gcflags", "-N -l")
+					goBuild := exec.Command("go", "build", "-o", debugname, "-gcflags", "-N -l", BuildFlags)
 					goBuild.Stderr = os.Stderr
 					err := goBuild.Run()
 					if err != nil {
@@ -214,7 +225,7 @@ starts and attaches to it, and enable you to immediately begin debugging your pr
 					return 1
 				}
 				base := filepath.Base(wd)
-				goTest := exec.Command("go", "test", "-c", "-gcflags", "-N -l")
+				goTest := exec.Command("go", "test", "-c", "-gcflags", "-N -l", BuildFlags)
 				goTest.Stderr = os.Stderr
 				err = goTest.Run()
 				if err != nil {
@@ -236,6 +247,12 @@ starts and attaches to it, and enable you to immediately begin debugging your pr
 		Use:   "attach [pid]",
 		Short: "Attach to running process and begin debugging.",
 		Long:  "Attach to running process and begin debugging.",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return errors.New("you must provide a PID")
+			}
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			pid, err := strconv.Atoi(args[0])
 			if err != nil {
@@ -291,6 +308,10 @@ func execute(attachPid int, processArgs []string, conf *config.Config) int {
 	}
 	defer listener.Close()
 
+	if Headless && (InitFile != "") {
+		fmt.Fprintf(os.Stderr, "Warning: init file ignored\n")
+	}
+
 	// Create and start a debugger server
 	server := rpc.NewServer(&service.Config{
 		Listener:    listener,
@@ -308,6 +329,7 @@ func execute(attachPid int, processArgs []string, conf *config.Config) int {
 		var client service.Client
 		client = rpc.NewClient(listener.Addr().String())
 		term := terminal.New(client, conf)
+		term.InitFile = InitFile
 		err, status = term.Run()
 	} else {
 		ch := make(chan os.Signal)
