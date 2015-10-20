@@ -20,9 +20,47 @@ func (t *Thread) halt() (err error) {
 	return nil
 }
 
-func (t *Thread) singleStep() error {
-	fmt.Println("singleStep")
-	return fmt.Errorf("Not implemented: singleStep")
+func (t *Thread) singleStep() error {	
+	var context C.CONTEXT
+	context.ContextFlags = C.CONTEXT_ALL;
+	
+	res, err := C.GetThreadContext(t.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+	
+	//TODO: Is it really okay to not decrement to IP?
+	//context.Rip--;
+	context.EFlags |= 0x100;
+	
+	
+	res, err = C.SetThreadContext(t.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+
+	err = t.resume()
+	if err != nil {
+		return err
+	}
+	_, err = t.dbp.trapWait(0)
+	if err != nil {
+		return err
+	}
+	
+	res, err = C.GetThreadContext(t.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+		
+	context.EFlags ^= 0x100;
+	
+	res, err = C.SetThreadContext(t.os.hThread, &context)
+	if res == 0 {
+		return err
+	}
+	
+	return nil
 }
 
 func (t *Thread) resume() error {
@@ -38,8 +76,22 @@ func (t *Thread) resume() error {
 }
 
 func (thread *Thread) blocked() bool {
-	fmt.Println("Not yet implemented: blocked")
-	return false
+	// TODO: Probably incorrect - what are teh runtime functions that
+	// indicate blocking on Windows?
+	pc, err := thread.PC()
+	if err != nil {
+		return false
+	}
+	fn := thread.dbp.goSymTable.PCToFunc(pc)
+	if fn == nil {
+		return false
+	}
+	switch fn.Name {
+	case "runtime.kevent", "runtime.mach_semaphore_wait", "runtime.usleep":
+		return true
+	default:
+		return false
+	}
 }
 
 func (thread *Thread) stopped() bool {

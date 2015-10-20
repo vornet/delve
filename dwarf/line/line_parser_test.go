@@ -3,6 +3,7 @@ package line
 import (
 	"debug/elf"
 	"debug/macho"
+	"debug/pe"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,10 +25,16 @@ func grabDebugLineSection(p string, t *testing.T) []byte {
 		data, _ := ef.Section(".debug_line").Data()
 		return data
 	}
+	
+	pf, err := pe.NewFile(f)
+	if err == nil {
+		data, _ := pf.Section(".debug_line").Data()
+		return data
+	}
 
 	mf, _ := macho.NewFile(f)
 	data, _ := mf.Section("__debug_line").Data()
-
+	
 	return data
 }
 

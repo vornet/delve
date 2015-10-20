@@ -1,6 +1,6 @@
 #include "proc_windows.h"
  
-BOOL wait(DWORD* threadID) {
+BOOL wait(DWORD* threadID, DWORD* exitCode) {
 	DEBUG_EVENT debug_event = {0};
 	for(;;) {
 		if (!WaitForDebugEvent(&debug_event, INFINITE))
@@ -8,7 +8,7 @@ BOOL wait(DWORD* threadID) {
 		// TODO: This switch should be handled in GO so that events can
 		// easily be processed (addThread, handle exit gracefully, etc.)
 		switch(debug_event.dwDebugEventCode) {
-			case CREATE_PROCESS_DEBUG_EVENT: 
+			case CREATE_PROCESS_DEBUG_EVENT:
 				ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, DBG_CONTINUE);
 				continue;
 			case LOAD_DLL_DEBUG_EVENT: 
@@ -27,6 +27,7 @@ BOOL wait(DWORD* threadID) {
 				continue;
 			case EXIT_PROCESS_DEBUG_EVENT:
 				*threadID = 0;
+				*exitCode = debug_event.u.ExitProcess.dwExitCode;
 				return 0;
 			default:
 				return -1;	
@@ -48,8 +49,9 @@ int waitForCreateProcessEvent(HANDLE* hProcess, HANDLE* hThread, int* threadID) 
 			DWORD processID = debug_event.dwProcessId;
 			
 			DWORD dummyThreadID;
+			DWORD dummyExitCode;
 			ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, DBG_CONTINUE);
-			return wait(&dummyThreadID);
+			return wait(&dummyThreadID, &dummyExitCode);
 		default:
 			return -1;
 	}

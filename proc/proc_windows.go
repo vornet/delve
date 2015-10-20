@@ -100,8 +100,11 @@ func (dbp *Process) Kill() (err error) {
 }
 
 func (dbp *Process) requestManualStop() (err error) {
-	fmt.Println("requestManualStop")
-	return fmt.Errorf("Not implemented: requestManualStop")
+	res := C.DebugBreakProcess(dbp.os.hProcess)
+	if res == 0 {
+		return fmt.Errorf("Failed to break process %d", dbp.Pid)	
+	}
+	return nil
 }
 
 func (dbp *Process) updateThreadList() error {
@@ -284,21 +287,44 @@ func (dbp *Process) findExecutable(path string) (*pe.File, error) {
 }
 
 func (dbp *Process) trapWait(pid int) (*Thread, error) {
-	var res C.BOOL
-	var tid int
-	dbp.execPtraceFunc(func() {
-		var threadID C.DWORD
-		res = C.wait(&threadID)
-		tid = int(threadID)
-	})
-	if res < 0 {
-		return nil, fmt.Errorf("Failed to continue debugging")	
+	for {
+		var res C.BOOL
+		var tid int
+		var exit int
+		dbp.execPtraceFunc(func() {
+			var threadID C.DWORD
+			var exitCode C.DWORD
+			res = C.wait(&threadID, &exitCode)
+			tid = int(threadID)
+			exit = int(exitCode)
+		})
+		if tid == 0 {
+			return nil, ProcessExitedError{Pid: dbp.Pid, Status: exit}
+		}
+		if res < 0 {
+			return nil, fmt.Errorf("Failed to continue debugging")	
+		}
+		th, err := dbp.handleBreakpointOnThread(tid)
+		if err != nil {
+			if _, ok := err.(NoBreakpointError); !ok {
+				return nil, err
+			}
+			thread := dbp.Threads[tid]
+			if dbp.halt {
+				dbp.halt = false
+				return thread, nil
+			}
+			if dbp.firstStart || thread.singleStepping {
+				dbp.firstStart = false
+				return thread, nil
+			}
+			if err := thread.Continue(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		return th, nil
 	}
-	thread, err := dbp.handleBreakpointOnThread(tid)
-	if err != nil {
-		return nil, err
-	}
-	return thread, nil
 }
 
 func wait(pid, tgid, options int) (int, *sys.WaitStatus, error) {
