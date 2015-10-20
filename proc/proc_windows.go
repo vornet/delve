@@ -327,7 +327,11 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 	}
 }
 
-func wait(pid, tgid, options int) (int, *sys.WaitStatus, error) {
+func (dbp *Process) loadProcessInformation(wg *sync.WaitGroup) {
+	wg.Done()
+}
+
+func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	fmt.Println("wait")
 	return 0, nil, fmt.Errorf("Not implemented: wait")
 }

@@ -16,7 +16,7 @@ import (
 
 const (
 	historyFile             string = ".dbg_history"
-	TerminalBlueEscapeCode  string = "\033[34m"
+	TerminalBlueEscapeCode  string = "\033[36m"
 	TerminalResetEscapeCode string = "\033[0m"
 )
 
