@@ -55,30 +55,12 @@ func Launch(cmd []string) (*Process, error) {
 	
 	dbp := New(int(pi.ProcessId))
 	
-	var hProcess C.HANDLE
-	var hThread C.HANDLE
-	var threadID C.int
-	
-	var res C.int
 	dbp.execPtraceFunc(func() {
-		res = C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
-		if res != 0 {
-			return
-		}
-		C.ContinueDebugEvent(C.DWORD(dbp.Pid), C.DWORD(threadID), C.DBG_CONTINUE)
 		// TODO - We're ignoring the results because we assume we'll immediately hit
 		// the default breakpoint that Windows sets at process creation.
-		// Should perhaps be testing that we're not overlooking an exit event or similar.
+		// Should perhaps be testing that we're not overlooking an exit event or similar?
 		_, _, err = dbp.waitForDebugEvent()
 	})
-	if res != 0 {
-		return nil, fmt.Errorf("Unable to wait on process/thread: ", dbp.Pid, ":", threadID) 	
-	}
-	dbp.os.hProcess = hProcess
-	_, err = dbp.addThread(hThread, int(threadID), false)
-	if err != nil {
-		return nil, err
-	}
 	
 	return initializeDebugProcess(dbp, argv0Go, false)
 }
@@ -303,7 +285,18 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 		}
 		unionPtr := unsafe.Pointer(&debugEvent.u[0])
 		switch debugEvent.dwDebugEventCode {
-		case C.CREATE_PROCESS_DEBUG_EVENT, C.LOAD_DLL_DEBUG_EVENT, C.CREATE_THREAD_DEBUG_EVENT, C.UNLOAD_DLL_DEBUG_EVENT, C.EXIT_THREAD_DEBUG_EVENT:
+		case C.CREATE_PROCESS_DEBUG_EVENT:
+			debugInfo := (*C.CREATE_PROCESS_DEBUG_INFO)(unionPtr)
+			
+			dbp.os.hProcess = debugInfo.hProcess
+			_, err = dbp.addThread(debugInfo.hThread, int(debugEvent.dwThreadId), false)
+			if err != nil {
+				return 0, 0, err
+			}
+			
+			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
+			continue
+		case C.LOAD_DLL_DEBUG_EVENT, C.CREATE_THREAD_DEBUG_EVENT, C.UNLOAD_DLL_DEBUG_EVENT, C.EXIT_THREAD_DEBUG_EVENT:
 			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
 			continue
 		case C.EXCEPTION_DEBUG_EVENT:
