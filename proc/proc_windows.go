@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"os/exec"
 	"syscall"
+	"unsafe"
 	
 	"github.com/derekparker/delve/dwarf/line"
 	"github.com/derekparker/delve/dwarf/frame"
@@ -60,10 +61,18 @@ func Launch(cmd []string) (*Process, error) {
 	
 	var res C.int
 	dbp.execPtraceFunc(func() {
-		res, err = C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
+		res = C.waitForCreateProcessEvent(&hProcess, &hThread, &threadID)
+		if res != 0 {
+			return
+		}
+		C.ContinueDebugEvent(C.DWORD(dbp.Pid), C.DWORD(threadID), C.DBG_CONTINUE)
+		// TODO - We're ignoring the results because we assume we'll immediately hit
+		// the default breakpoint that Windows sets at process creation.
+		// Should perhaps be testing that we're not overlooking an exit event or similar.
+		_, _, err = dbp.waitForDebugEvent()
 	})
 	if res != 0 {
-		return nil, err 	
+		return nil, fmt.Errorf("Unable to wait on process/thread: ", dbp.Pid, ":", threadID) 	
 	}
 	dbp.os.hProcess = hProcess
 	_, err = dbp.addThread(hThread, int(threadID), false)
@@ -286,23 +295,41 @@ func (dbp *Process) findExecutable(path string) (*pe.File, error) {
 	return peFile, nil
 }
 
-func (dbp *Process) trapWait(pid int) (*Thread, error) {
+func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
+	var debugEvent C.DEBUG_EVENT
 	for {
-		var res C.BOOL
-		var tid int
-		var exit int
-		dbp.execPtraceFunc(func() {
-			var threadID C.DWORD
-			var exitCode C.DWORD
-			res = C.wait(&threadID, &exitCode)
-			tid = int(threadID)
-			exit = int(exitCode)
-		})
-		if tid == 0 {
-			return nil, ProcessExitedError{Pid: dbp.Pid, Status: exit}
+		if C.WaitForDebugEvent(&debugEvent, C.INFINITE) == C.WINBOOL(0) { 
+			return 0, 0, fmt.Errorf("Could not WaitForDebugEvent")
 		}
-		if res < 0 {
-			return nil, fmt.Errorf("Failed to continue debugging")	
+		unionPtr := unsafe.Pointer(&debugEvent.u[0])
+		switch debugEvent.dwDebugEventCode {
+		case C.CREATE_PROCESS_DEBUG_EVENT, C.LOAD_DLL_DEBUG_EVENT, C.CREATE_THREAD_DEBUG_EVENT, C.UNLOAD_DLL_DEBUG_EVENT, C.EXIT_THREAD_DEBUG_EVENT:
+			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
+			continue
+		case C.EXCEPTION_DEBUG_EVENT:
+			return int(debugEvent.dwThreadId), 0, nil
+		case C.EXIT_PROCESS_DEBUG_EVENT:
+			debugInfo := (*C.EXIT_PROCESS_DEBUG_INFO)(unionPtr)
+			return 0, int(debugInfo.dwExitCode), nil
+		default:
+			return 0, 0, fmt.Errorf("Unknown event code: ", debugEvent.dwDebugEventCode)	
+		}
+	}
+}
+
+func (dbp *Process) trapWait(pid int) (*Thread, error) {	
+	for {
+		var err error
+		var tid int
+		var exitCode int
+		dbp.execPtraceFunc(func() {
+			tid, exitCode, err = dbp.waitForDebugEvent()
+		})
+		if err != nil {
+			return nil, err	
+		}
+		if tid == 0 {
+			return nil, ProcessExitedError{Pid: dbp.Pid, Status: exitCode}
 		}
 		th, err := dbp.handleBreakpointOnThread(tid)
 		if err != nil {
