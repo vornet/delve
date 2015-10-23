@@ -5,7 +5,6 @@ import "C"
 import (
 	"fmt"
 	"bytes"
-	"encoding/binary"
 )
 
 type Regs struct {
@@ -117,8 +116,7 @@ func registers(thread *Thread) (Registers, error) {
 	if status != 0 {
 		return nil, fmt.Errorf("Failed to get thread_basic_information")
 	}
-	bytes,err := thread.readMemory(uintptr(threadInfo.TebBaseAddress), 0x60)
-	tls := binary.LittleEndian.Uint64(bytes[0x58:0x60])
+	tls := uintptr(threadInfo.TebBaseAddress)
 	
 	regs := &Regs{
 		rax:     uint64(context.Rax),
@@ -142,7 +140,7 @@ func registers(thread *Thread) (Registers, error) {
 		cs:      uint64(context.SegCs),
 		fs:      uint64(context.SegFs),
 		gs:      uint64(context.SegGs),
-		tls:     tls,
+		tls:     uint64(tls),
 	}
 	return regs, nil
 }

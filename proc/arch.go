@@ -35,11 +35,16 @@ func (a *AMD64) SetGStructOffset(ver GoVersion, isextld bool) {
 	switch runtime.GOOS {
 	case "darwin":
 		a.gStructOffset = 0x8a0
-	case "linux", "windows":
+	case "linux":
 		a.gStructOffset = 0xfffffffffffffff0
 		if isextld || ver.AfterOrEqual(GoVersion{1, 5, -1, 2, 0}) || ver.IsDevel() {
 			a.gStructOffset += 8
 		}
+	case "windows":
+		// Use ArbitraryUserPointer (0x28) as pointer to pointer 
+		// to G struct per:
+		// https://golang.org/src/runtime/cgo/gcc_windows_amd64.c
+		a.gStructOffset = 0x28
 	}
 }
 

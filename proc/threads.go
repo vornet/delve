@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	"github.com/derekparker/delve/dwarf/frame"
 	"github.com/derekparker/delve/source"
@@ -281,8 +282,12 @@ func (thread *Thread) GetG() (g *G, err error) {
 		return nil, err
 	}
 	gaddr := binary.LittleEndian.Uint64(gaddrbs)
-
-	g, err = parseG(thread, gaddr, false)
+	
+	// On Windows, the value at TLS()+GStructOffset() is a 
+	// pointer to the G struct.
+	needsDeref := runtime.GOOS == "windows"
+	
+	g, err = parseG(thread, gaddr, needsDeref)
 	if err == nil {
 		g.thread = thread
 	}
