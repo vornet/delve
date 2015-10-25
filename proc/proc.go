@@ -303,7 +303,14 @@ func (dbp *Process) next() (err error) {
 			}
 			tg, err := th.GetG()
 			if err != nil {
-				return err
+				switch err.(type) {
+				case NoGError:
+					// TODO: We're ignoring failure to read G because
+					// on Windows this will fail on non-Go threads.
+					continue
+				default:
+					return err		
+				}
 			}
 			// Make sure we're on the same goroutine, unless it has exited.
 			if tg.Id == g.Id || goroutineExiting {

@@ -43,6 +43,15 @@ type Location struct {
 // first and then resume execution. Thread will continue until
 // it hits a breakpoint or is signaled.
 func (thread *Thread) Continue() error {
+	// TODO: Refactor to avoid runtime platform check
+	if runtime.GOOS == "windows" {
+		// On Windows we must only Continue the thread that
+		// broke into the debugger (last WaitForDebugEvent).
+		// Doing so will continue all threads.
+		if thread.dbp.CurrentThread.Id != thread.Id {
+			return nil
+		}
+	}
 	pc, err := thread.PC()
 	if err != nil {
 		return err

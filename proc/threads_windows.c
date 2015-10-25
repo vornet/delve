@@ -29,7 +29,3 @@ int thread_basic_information(HANDLE h, THREAD_BASIC_INFORMATION* addr) {
 	NTSTATUS status = NtQueryInformationThread(h,ThreadBasicInformation,addr,48, 0);
 	return status;
 }
-
-BOOL continue_debugger(DWORD processId, DWORD threadId) {
-	return ContinueDebugEvent(processId, threadId, DBG_CONTINUE);
-}

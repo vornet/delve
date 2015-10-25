@@ -64,9 +64,9 @@ func (t *Thread) singleStep() error {
 }
 
 func (t *Thread) resume() error {
-	var res C.BOOL
+	var res C.WINBOOL
 	t.dbp.execPtraceFunc(func() {
-		res = C.continue_debugger(C.DWORD(t.dbp.Pid), C.DWORD(t.Id))
+		res = C.ContinueDebugEvent(C.DWORD(t.dbp.Pid), C.DWORD(t.Id), C.DBG_CONTINUE)
 	})
 	if res == 0 {
 		errCode := int(C.GetLastError())
