@@ -291,14 +291,20 @@ func (dbp *Process) next() (err error) {
 			return
 		}
 	}
-
+	
 	for {
-		_, err := dbp.trapWait(-1)
+		trapThread, err := dbp.trapWait(-1)
 		if err != nil {
 			return err
 		}
 		for _, th := range dbp.Threads {
 			if !th.Stopped() {
+				continue
+			}
+			// On Windows all threads are stopped when debug events
+			// are raised, so we must only pay attention to the one
+			// that raised the debug event.
+			if runtime.GOOS == "windows" && trapThread.Id != th.Id {
 				continue
 			}
 			tg, err := th.GetG()
@@ -307,6 +313,9 @@ func (dbp *Process) next() (err error) {
 				case NoGError:
 					// TODO: We're ignoring failure to read G because
 					// on Windows this will fail on non-Go threads.
+					if err = th.Continue(); err != nil {
+						return err
+					}
 					continue
 				default:
 					return err		

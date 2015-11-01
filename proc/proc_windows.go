@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"syscall"
 	"unsafe"
+	"runtime"
 	
 	"github.com/derekparker/delve/dwarf/line"
 	"github.com/derekparker/delve/dwarf/frame"
@@ -23,6 +24,7 @@ import (
 // Windows specific information.
 type OSProcessDetails struct {
 	hProcess	C.HANDLE
+	breakThread int
 }
 
 // Create and begin debugging a new process.
@@ -53,6 +55,11 @@ func Launch(cmd []string) (*Process, error) {
 	defer sys.CloseHandle(sys.Handle(pi.Thread))
 	
 	dbp := New(int(pi.ProcessId))
+
+	switch runtime.GOARCH {
+	case "amd64":
+		dbp.arch = AMD64Arch()
+	}
 	
 	dbp.execPtraceFunc(func() {
 		// TODO - We're ignoring the results because we assume we'll immediately hit
@@ -101,15 +108,6 @@ func (dbp *Process) updateThreadList() error {
 	// TODO: Currently we are ignoring this request since we assume that
 	// threads are being tracked as they are created/killed. 
 	
-	// TODO: This is a hack to make sure that we switch to an active 
-	// thread if updateThreadList is called without any CurrentThread set.
-	// This should only happen at startup, and likely this can be refactored.
-	for threadID := range dbp.Threads {
-		if dbp.CurrentThread == nil {
-			dbp.SwitchThread(threadID)
-		}
-		return nil
-	}
 	return nil
 }
 
@@ -124,7 +122,9 @@ func (dbp *Process) addThread(hThread C.HANDLE, threadID int, attach bool) (*Thr
 	}
 	thread.os.hThread = hThread
 	dbp.Threads[threadID] = thread
-	
+	if dbp.CurrentThread == nil {
+		dbp.SwitchThread(thread.Id)
+	}
 	return thread, nil
 }
 
@@ -309,6 +309,7 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
 			continue
 		case C.EXCEPTION_DEBUG_EVENT:
+			dbp.os.breakThread = int(debugEvent.dwThreadId)
 			return int(debugEvent.dwThreadId), 0, nil
 		case C.EXIT_PROCESS_DEBUG_EVENT:
 			debugInfo := (*C.EXIT_PROCESS_DEBUG_INFO)(unionPtr)

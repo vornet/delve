@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"runtime"
+	"strings"
 )
 
 // Fixture is a test binary.
@@ -55,6 +57,9 @@ func BuildFixture(name string) Fixture {
 	}
 
 	source, _ := filepath.Abs(path)
+	if(runtime.GOOS == "windows") {
+		source = strings.Replace(source, "\\", "/", -1)
+	}
 	Fixtures[name] = Fixture{Name: name, Path: tmpfile, Source: source}
 	return Fixtures[name]
 }

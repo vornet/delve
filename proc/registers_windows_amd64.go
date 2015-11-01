@@ -106,11 +106,11 @@ func registers(thread *Thread) (Registers, error) {
 	var context C.CONTEXT
 	
 	context.ContextFlags = C.CONTEXT_ALL;
-	res, err := C.GetThreadContext(thread.os.hThread, &context)
+	res := C.GetThreadContext(thread.os.hThread, &context)
 	if res == 0 {
-		return nil, err
+		return nil, fmt.Errorf("Failed to read ThreadContext")
 	}
-	
+
 	var threadInfo C.THREAD_BASIC_INFORMATION
 	status := C.thread_basic_information(thread.os.hThread, &threadInfo)
 	if status != 0 {

@@ -48,7 +48,7 @@ func (thread *Thread) Continue() error {
 		// On Windows we must only Continue the thread that
 		// broke into the debugger (last WaitForDebugEvent).
 		// Doing so will continue all threads.
-		if thread.dbp.CurrentThread.Id != thread.Id {
+		if thread.dbp.os.breakThread != thread.Id {
 			return nil
 		}
 	}
