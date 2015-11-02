@@ -38,7 +38,10 @@ func (t *Thread) singleStep() error {
 	if res == 0 {
 		return err
 	}
-
+	
+	// TODO: It's possible that this resume/trapWait will 
+	// land us on another thread. We need to guard for that 
+	// and loop here till we sucessfully land back on our thread.
 	err = t.resume()
 	if err != nil {
 		return err
@@ -66,11 +69,12 @@ func (t *Thread) singleStep() error {
 func (t *Thread) resume() error {
 	var res C.WINBOOL
 	t.dbp.execPtraceFunc(func() {
-		res = C.ContinueDebugEvent(C.DWORD(t.dbp.Pid), C.DWORD(t.Id), C.DBG_CONTINUE)
+		//TODO: Note that we are ignoring the thread we were asked to continue and are continuing the 
+		//thread that we last broke on.
+		res = C.ContinueDebugEvent(C.DWORD(t.dbp.Pid), C.DWORD(t.dbp.os.breakThread), C.DBG_CONTINUE)
 	})
 	if res == 0 {
-		errCode := int(C.GetLastError())
-		return fmt.Errorf("Could not continue: %d", errCode)	
+		return fmt.Errorf("Could not ContinueDebugEvent.")	
 	}
 	return nil
 }
