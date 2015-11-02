@@ -73,6 +73,9 @@ func (thread *Thread) Continue() error {
 // execute the instruction, and then replace the breakpoint.
 // Otherwise we simply execute the next instruction.
 func (thread *Thread) Step() (err error) {
+	if runtime.GOOS == "windows" && thread.Id != thread.dbp.os.breakThread {
+		return
+	}
 	thread.running = true
 	thread.singleStepping = true
 	defer func() {
