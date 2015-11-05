@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"runtime"
 
 	"github.com/derekparker/delve/config"
 	"github.com/derekparker/delve/service"
@@ -47,11 +48,18 @@ evaluating variables, and providing information of thread / goroutine state, CPU
 The goal of this tool is to provide a simple yet powerful interface for debugging Go programs.
 `,
 	}
+	
+	buildFlagsDefault := ""
+	if runtime.GOOS == "windows" {
+		// Work-around for https://github.com/golang/go/issues/13154 
+		buildFlagsDefault = "-ldflags=-linkmode internal"
+	}
+	
 	rootCommand.PersistentFlags().StringVarP(&Addr, "listen", "l", "localhost:0", "Debugging server listen address.")
 	rootCommand.PersistentFlags().BoolVarP(&Log, "log", "", false, "Enable debugging server logging.")
 	rootCommand.PersistentFlags().BoolVarP(&Headless, "headless", "", false, "Run debug server only, in headless mode.")
 	rootCommand.PersistentFlags().StringVar(&InitFile, "init", "", "Init file, executed by the terminal client.")
-	rootCommand.PersistentFlags().StringVar(&BuildFlags, "build-flags", "", "Build flags, to be passed to the compiler.")
+	rootCommand.PersistentFlags().StringVar(&BuildFlags, "build-flags", buildFlagsDefault, "Build flags, to be passed to the compiler.")
 
 	// 'version' subcommand.
 	versionCommand := &cobra.Command{
