@@ -55,6 +55,7 @@ func Launch(cmd []string) (*Process, error) {
 	defer sys.CloseHandle(sys.Handle(pi.Thread))
 	
 	dbp := New(int(pi.ProcessId))
+	dbp.os.hProcess = C.HANDLE(pi.Process)
 
 	switch runtime.GOARCH {
 	case "amd64":
@@ -84,14 +85,10 @@ func (dbp *Process) Kill() (err error) {
 	if !dbp.Threads[dbp.Pid].Stopped() {
 		return errors.New("process must be stopped in order to kill it")
 	}
-	proc, err := os.FindProcess(dbp.Pid)
-	if err != nil {
-		return err
-	}
-	err = proc.Kill()
-	if err != nil {
-		return err
-	}
+	// TODO: Should not have to ignore failures here,
+	// but some tests appear to Kill twice causing 
+	// this to fail on second attempt.
+	_ = C.TerminateProcess(dbp.os.hProcess, 1)
 	dbp.exited = true
 	return
 }
@@ -287,7 +284,6 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 		case C.CREATE_PROCESS_DEBUG_EVENT:
 			debugInfo := (*C.CREATE_PROCESS_DEBUG_INFO)(unionPtr)
 			
-			dbp.os.hProcess = debugInfo.hProcess
 			_, err = dbp.addThread(debugInfo.hThread, int(debugEvent.dwThreadId), false)
 			if err != nil {
 				return 0, 0, err

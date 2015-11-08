@@ -151,6 +151,9 @@ func (dbp *Process) LoadInformation(path string) error {
 }
 
 func (dbp *Process) FindFileLocation(fileName string, lineno int) (uint64, error) {
+	if runtime.GOOS == "windows" {
+		fileName = strings.Replace(fileName, "\\", "/", -1)
+	}
 	pc, _, err := dbp.goSymTable.LineToPC(fileName, lineno)
 	if err != nil {
 		return 0, err

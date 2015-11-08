@@ -39,6 +39,10 @@ func (t *Thread) resume() (err error) {
 	return
 }
 
+func (thread *Thread) canContinue() bool {
+	return true
+}
+
 func (t *Thread) singleStep() (err error) {
 	t.dbp.execPtraceFunc(func() { err = sys.PtraceSingleStep(t.Id) })
 	if err != nil {

@@ -70,7 +70,7 @@ func (t *Thread) resume() error {
 	var res C.WINBOOL
 	t.dbp.execPtraceFunc(func() {
 		//TODO: Note that we are ignoring the thread we were asked to continue and are continuing the 
-		//thread that we last broke on.
+		//thread that we last broke on.	
 		res = C.ContinueDebugEvent(C.DWORD(t.dbp.Pid), C.DWORD(t.dbp.os.breakThread), C.DBG_CONTINUE)
 	})
 	if res == 0 {
@@ -102,6 +102,10 @@ func (thread *Thread) stopped() bool {
 	// TODO: We are assuming that threads are always stopped
 	// during command exection.
 	return true 
+}
+
+func (thread *Thread) canContinue() bool {
+	return thread.dbp.os.breakThread == thread.Id
 }
 
 func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {

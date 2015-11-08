@@ -75,6 +75,10 @@ func (thread *Thread) stopped() bool {
 	return C.thread_blocked(thread.os.thread_act) > C.int(0)
 }
 
+func (thread *Thread) canContinue() bool {
+	return true
+}
+
 func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, nil

@@ -9,7 +9,8 @@ func attachErrorMessage(pid int, err error) error {
 }
 
 func stopProcess(pid int) error {
-	// TODO: We're assuming that process is always stopped 
-	// when we are in interactive debugger.
+	// We cannot gracefully stop a process on Windows,
+	// so just ignore this request and let `Detach` kill
+	// the process.
 	return nil
 }
