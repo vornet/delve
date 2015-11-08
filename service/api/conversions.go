@@ -2,12 +2,13 @@ package api
 
 import (
 	"debug/gosym"
+	"go/constant"
+	"reflect"
 	"strconv"
 
 	"github.com/derekparker/delve/proc"
 )
 
-// convertBreakpoint converts an internal breakpoint to an API Breakpoint.
 func ConvertBreakpoint(bp *proc.Breakpoint) *Breakpoint {
 	b := &Breakpoint{
 		ID:            bp.ID,
@@ -30,7 +31,6 @@ func ConvertBreakpoint(bp *proc.Breakpoint) *Breakpoint {
 	return b
 }
 
-// convertThread converts an internal thread to an API Thread.
 func ConvertThread(th *proc.Thread) *Thread {
 	var (
 		function *Function
@@ -56,13 +56,82 @@ func ConvertThread(th *proc.Thread) *Thread {
 	}
 }
 
-// convertVar converts an internal variable to an API Variable.
-func ConvertVar(v *proc.Variable) Variable {
-	return Variable{
-		Name:  v.Name,
-		Value: v.Value,
-		Type:  v.Type,
+func ConvertVar(v *proc.Variable) *Variable {
+	r := Variable{
+		Addr:     v.Addr,
+		OnlyAddr: v.OnlyAddr,
+		Name:     v.Name,
+		Kind:     v.Kind,
+		Len:      v.Len,
+		Cap:      v.Cap,
 	}
+
+	if v.DwarfType != nil {
+		r.Type = v.DwarfType.String()
+	}
+
+	if v.RealType != nil {
+		r.RealType = v.RealType.String()
+	}
+
+	if v.Unreadable != nil {
+		r.Unreadable = v.Unreadable.Error()
+	}
+
+	if v.Value != nil {
+		switch v.Kind {
+		case reflect.Float32:
+			f, _ := constant.Float64Val(v.Value)
+			r.Value = strconv.FormatFloat(f, 'f', -1, 32)
+		case reflect.Float64:
+			f, _ := constant.Float64Val(v.Value)
+			r.Value = strconv.FormatFloat(f, 'f', -1, 64)
+		case reflect.String, reflect.Func:
+			r.Value = constant.StringVal(v.Value)
+		default:
+			r.Value = v.Value.String()
+		}
+	}
+
+	switch v.Kind {
+	case reflect.Complex64:
+		r.Children = make([]Variable, 2)
+		r.Len = 2
+
+		real, _ := constant.Float64Val(constant.Real(v.Value))
+		imag, _ := constant.Float64Val(constant.Imag(v.Value))
+
+		r.Children[0].Name = "real"
+		r.Children[0].Kind = reflect.Float32
+		r.Children[0].Value = strconv.FormatFloat(real, 'f', -1, 32)
+
+		r.Children[1].Name = "imaginary"
+		r.Children[1].Kind = reflect.Float32
+		r.Children[1].Value = strconv.FormatFloat(imag, 'f', -1, 32)
+	case reflect.Complex128:
+		r.Children = make([]Variable, 2)
+		r.Len = 2
+
+		real, _ := constant.Float64Val(constant.Real(v.Value))
+		imag, _ := constant.Float64Val(constant.Imag(v.Value))
+
+		r.Children[0].Name = "real"
+		r.Children[0].Kind = reflect.Float64
+		r.Children[0].Value = strconv.FormatFloat(real, 'f', -1, 64)
+
+		r.Children[1].Name = "imaginary"
+		r.Children[1].Kind = reflect.Float64
+		r.Children[1].Value = strconv.FormatFloat(imag, 'f', -1, 64)
+
+	default:
+		r.Children = make([]Variable, len(v.Children))
+
+		for i := range v.Children {
+			r.Children[i] = *ConvertVar(&v.Children[i])
+		}
+	}
+
+	return &r
 }
 
 func ConvertFunction(fn *gosym.Func) *Function {
@@ -78,7 +147,6 @@ func ConvertFunction(fn *gosym.Func) *Function {
 	}
 }
 
-// convertGoroutine converts an internal Goroutine to an API Goroutine.
 func ConvertGoroutine(g *proc.G) *Goroutine {
 	return &Goroutine{
 		ID:             g.Id,

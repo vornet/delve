@@ -5,6 +5,7 @@ import (
 	"debug/gosym"
 	"encoding/binary"
 	"fmt"
+	"go/constant"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,7 +15,6 @@ import (
 	"github.com/derekparker/delve/dwarf/frame"
 	"github.com/derekparker/delve/dwarf/line"
 	"github.com/derekparker/delve/dwarf/reader"
-	"github.com/derekparker/delve/source"
 )
 
 // Process represents all of the information the debugger
@@ -45,7 +45,6 @@ type Process struct {
 	firstStart              bool
 	os                      *OSProcessDetails
 	arch                    Arch
-	ast                     *source.Searcher
 	breakpointIDCounter     int
 	tempBreakpointIDCounter int
 	halt                    bool
@@ -61,7 +60,6 @@ func New(pid int) *Process {
 		Breakpoints:    make(map[uint64]*Breakpoint),
 		firstStart:     true,
 		os:             new(OSProcessDetails),
-		ast:            source.New(),
 		ptraceChan:     make(chan func()),
 		ptraceDoneChan: make(chan interface{}),
 	}
@@ -168,34 +166,39 @@ func (dbp *Process) FindFileLocation(fileName string, lineno int) (uint64, error
 // Note that setting breakpoints at that address will cause surprising behavior:
 // https://github.com/derekparker/delve/issues/170
 func (dbp *Process) FindFunctionLocation(funcName string, firstLine bool, lineOffset int) (uint64, error) {
-	fn := dbp.goSymTable.LookupFunc(funcName)
-	if fn == nil {
+	origfn := dbp.goSymTable.LookupFunc(funcName)
+	if origfn == nil {
 		return 0, fmt.Errorf("Could not find function %s\n", funcName)
 	}
 
 	if firstLine {
-		filename, lineno, _ := dbp.goSymTable.PCToLine(fn.Entry)
+		filename, lineno, _ := dbp.goSymTable.PCToLine(origfn.Entry)
 		if filepath.Ext(filename) != ".go" {
-			return fn.Entry, nil
+			return origfn.Entry, nil
 		}
-
-		lines, err := dbp.ast.NextLines(filename, lineno)
-		if err != nil {
-			return 0, err
+		for {
+			lineno++
+			pc, fn, _ := dbp.goSymTable.LineToPC(filename, lineno)
+			if fn != nil {
+				if fn.Name != funcName {
+					if strings.Contains(fn.Name, funcName) {
+						continue
+					}
+					break
+				}
+				if fn.Name == funcName {
+					return pc, nil
+				}
+			}
 		}
-
-		if len(lines) > 0 {
-			linePC, _, err := dbp.goSymTable.LineToPC(filename, lines[0])
-			return linePC, err
-		}
-		return fn.Entry, nil
+		return origfn.Entry, nil
 	} else if lineOffset > 0 {
-		filename, lineno, _ := dbp.goSymTable.PCToLine(fn.Entry)
+		filename, lineno, _ := dbp.goSymTable.PCToLine(origfn.Entry)
 		breakAddr, _, err := dbp.goSymTable.LineToPC(filename, lineno+lineOffset)
 		return breakAddr, err
 	}
 
-	return fn.Entry, nil
+	return origfn.Entry, nil
 }
 
 // Sends out a request that the debugged process halt
@@ -485,9 +488,13 @@ func (dbp *Process) GoroutinesInfo() ([]*G, error) {
 	allglen := binary.LittleEndian.Uint64(allglenBytes)
 
 	rdr.Seek(0)
-	allgentryaddr, err := rdr.AddrFor("runtime.allg")
+	allgentryaddr, err := rdr.AddrFor("runtime.allgs")
 	if err != nil {
-		return nil, err
+		// try old name (pre Go 1.6)
+		allgentryaddr, err = rdr.AddrFor("runtime.allg")
+		if err != nil {
+			return nil, err
+		}
 	}
 	faddr, err := dbp.CurrentThread.readMemory(uintptr(allgentryaddr), dbp.arch.PtrSize())
 	allgptr := binary.LittleEndian.Uint64(faddr)
@@ -718,9 +725,9 @@ func (dbp *Process) getGoInformation() (ver GoVersion, isextld bool, err error) 
 		return
 	}
 
-	ver, ok := parseVersionString(vv.Value)
+	ver, ok := parseVersionString(constant.StringVal(vv.Value))
 	if !ok {
-		err = fmt.Errorf("Could not parse version number: %s\n", vv.Value)
+		err = fmt.Errorf("Could not parse version number: %v\n", vv.Value)
 		return
 	}
 

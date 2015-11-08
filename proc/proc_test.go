@@ -3,10 +3,12 @@ package proc
 import (
 	"bytes"
 	"fmt"
+	"go/constant"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -315,6 +317,7 @@ func TestNextConcurrent(t *testing.T) {
 		assertNoError(p.Continue(), t, "Continue")
 		f, ln := currentLineNumber(p, t)
 		initV, err := evalVariable(p, "n")
+		initVval, _ := constant.Int64Val(initV.Value)
 		assertNoError(err, t, "EvalVariable")
 		for _, tc := range testcases {
 			g, err := p.CurrentThread.GetG()
@@ -332,32 +335,28 @@ func TestNextConcurrent(t *testing.T) {
 			}
 			v, err := evalVariable(p, "n")
 			assertNoError(err, t, "EvalVariable")
-			if v.Value != initV.Value {
+			vval, _ := constant.Int64Val(v.Value)
+			if vval != initVval {
 				t.Fatal("Did not end up on same goroutine")
 			}
 		}
 	})
 }
 
-func TestNextGoroutine(t *testing.T) {
-	testcases := []nextTest{
-		{47, 42},
-	}
-	testnext("testnextprog", testcases, "main.testgoroutine", t)
-}
-
 func TestNextFunctionReturn(t *testing.T) {
 	testcases := []nextTest{
-		{14, 35},
+		{14, 15},
+		{15, 35},
 	}
 	testnext("testnextprog", testcases, "main.helloworld", t)
 }
 
 func TestNextFunctionReturnDefer(t *testing.T) {
 	testcases := []nextTest{
-		{9, 6},
-		{6, 7},
-		{7, 10},
+		{8, 9},
+		{9, 10},
+		{10, 7},
+		{7, 8},
 	}
 	testnext("testnextdefer", testcases, "main.main", t)
 }
@@ -552,8 +551,8 @@ func (l1 *loc) match(l2 Stackframe) bool {
 
 func TestStacktrace(t *testing.T) {
 	stacks := [][]loc{
-		[]loc{{4, "main.stacktraceme"}, {8, "main.func1"}, {16, "main.main"}},
-		[]loc{{4, "main.stacktraceme"}, {8, "main.func1"}, {12, "main.func2"}, {17, "main.main"}},
+		{{4, "main.stacktraceme"}, {8, "main.func1"}, {16, "main.main"}},
+		{{4, "main.stacktraceme"}, {8, "main.func1"}, {12, "main.func2"}, {17, "main.main"}},
 	}
 	withTestProcess("stacktraceprog", t, func(p *Process, fixture protest.Fixture) {
 		bp, err := setFunctionBreakpoint(p, "main.stacktraceme")
@@ -591,7 +590,7 @@ func TestStacktrace2(t *testing.T) {
 
 		locations, err := p.CurrentThread.Stacktrace(40)
 		assertNoError(err, t, "Stacktrace()")
-		if !stackMatch([]loc{loc{-1, "main.f"}, loc{16, "main.main"}}, locations) {
+		if !stackMatch([]loc{{-1, "main.f"}, {16, "main.main"}}, locations, false) {
 			for i := range locations {
 				t.Logf("\t%s:%d [%s]\n", locations[i].Call.File, locations[i].Call.Line, locations[i].Call.Fn.Name)
 			}
@@ -601,7 +600,7 @@ func TestStacktrace2(t *testing.T) {
 		assertNoError(p.Continue(), t, "Continue()")
 		locations, err = p.CurrentThread.Stacktrace(40)
 		assertNoError(err, t, "Stacktrace()")
-		if !stackMatch([]loc{loc{-1, "main.g"}, loc{17, "main.main"}}, locations) {
+		if !stackMatch([]loc{{-1, "main.g"}, {17, "main.main"}}, locations, false) {
 			for i := range locations {
 				t.Logf("\t%s:%d [%s]\n", locations[i].Call.File, locations[i].Call.Line, locations[i].Call.Fn.Name)
 			}
@@ -611,21 +610,32 @@ func TestStacktrace2(t *testing.T) {
 
 }
 
-func stackMatch(stack []loc, locations []Stackframe) bool {
+func stackMatch(stack []loc, locations []Stackframe, skipRuntime bool) bool {
 	if len(stack) > len(locations) {
 		return false
 	}
-	for i := range stack {
-		if !stack[i].match(locations[i]) {
+	i := 0
+	for j := range locations {
+		if i >= len(stack) {
+			break
+		}
+		if skipRuntime {
+			if locations[j].Call.Fn == nil || strings.HasPrefix(locations[j].Call.Fn.Name, "runtime.") {
+				continue
+			}
+		}
+		if !stack[i].match(locations[j]) {
 			return false
 		}
+		i++
 	}
-	return true
+	return i >= len(stack)
 }
 
 func TestStacktraceGoroutine(t *testing.T) {
-	mainStack := []loc{{12, "main.stacktraceme"}, {21, "main.main"}}
-	agoroutineStack := []loc{{-1, "runtime.gopark"}, {-1, "runtime.goparkunlock"}, {-1, "runtime.chansend"}, {-1, "runtime.chansend1"}, {8, "main.agoroutine"}}
+	mainStack := []loc{{13, "main.stacktraceme"}, {26, "main.main"}}
+	agoroutineStackA := []loc{{9, "main.agoroutine"}}
+	agoroutineStackB := []loc{{10, "main.agoroutine"}}
 
 	withTestProcess("goroutinestackprog", t, func(p *Process, fixture protest.Fixture) {
 		bp, err := setFunctionBreakpoint(p, "main.stacktraceme")
@@ -643,11 +653,13 @@ func TestStacktraceGoroutine(t *testing.T) {
 			locations, err := p.GoroutineStacktrace(g, 40)
 			assertNoError(err, t, "GoroutineStacktrace()")
 
-			if stackMatch(mainStack, locations) {
+			if stackMatch(mainStack, locations, false) {
 				mainCount++
 			}
 
-			if stackMatch(agoroutineStack, locations) {
+			if stackMatch(agoroutineStackA, locations, true) {
+				agoroutineCount++
+			} else if stackMatch(agoroutineStackB, locations, true) {
 				agoroutineCount++
 			} else {
 				t.Logf("Non-goroutine stack: %d (%d)", i, len(locations))
@@ -662,7 +674,7 @@ func TestStacktraceGoroutine(t *testing.T) {
 		}
 
 		if mainCount != 1 {
-			t.Fatalf("Main goroutine stack not found")
+			t.Fatalf("Main goroutine stack not found %d", mainCount)
 		}
 
 		if agoroutineCount != 10 {
@@ -817,5 +829,233 @@ func TestIssue239(t *testing.T) {
 		_, err = p.SetBreakpoint(pos)
 		assertNoError(err, t, fmt.Sprintf("SetBreakpoint(%d)", pos))
 		assertNoError(p.Continue(), t, fmt.Sprintf("Continue()"))
+	})
+}
+
+func evalVariable(p *Process, symbol string) (*Variable, error) {
+	scope, err := p.CurrentThread.Scope()
+	if err != nil {
+		return nil, err
+	}
+	return scope.EvalVariable(symbol)
+}
+
+func setVariable(p *Process, symbol, value string) error {
+	scope, err := p.CurrentThread.Scope()
+	if err != nil {
+		return err
+	}
+	return scope.SetVariable(symbol, value)
+}
+
+func TestVariableEvaluation(t *testing.T) {
+	testcases := []struct {
+		name        string
+		st          reflect.Kind
+		value       interface{}
+		length, cap int64
+		childrenlen int
+	}{
+		{"a1", reflect.String, "foofoofoofoofoofoo", 18, 0, 0},
+		{"a11", reflect.Array, nil, 3, -1, 3},
+		{"a12", reflect.Slice, nil, 2, 2, 2},
+		{"a13", reflect.Slice, nil, 3, 3, 3},
+		{"a2", reflect.Int, int64(6), 0, 0, 0},
+		{"a3", reflect.Float64, float64(7.23), 0, 0, 0},
+		{"a4", reflect.Array, nil, 2, -1, 2},
+		{"a5", reflect.Slice, nil, 5, 5, 5},
+		{"a6", reflect.Struct, nil, 2, 0, 2},
+		{"a7", reflect.Ptr, nil, 1, 0, 1},
+		{"a8", reflect.Struct, nil, 2, 0, 2},
+		{"a9", reflect.Ptr, nil, 1, 0, 1},
+		{"baz", reflect.String, "bazburzum", 9, 0, 0},
+		{"neg", reflect.Int, int64(-1), 0, 0, 0},
+		{"f32", reflect.Float32, float64(float32(1.2)), 0, 0, 0},
+		{"c64", reflect.Complex64, complex128(complex64(1 + 2i)), 0, 0, 0},
+		{"c128", reflect.Complex128, complex128(2 + 3i), 0, 0, 0},
+		{"a6.Baz", reflect.Int, int64(8), 0, 0, 0},
+		{"a7.Baz", reflect.Int, int64(5), 0, 0, 0},
+		{"a8.Baz", reflect.String, "feh", 3, 0, 0},
+		{"a8", reflect.Struct, nil, 2, 0, 2},
+		{"i32", reflect.Array, nil, 2, -1, 2},
+		{"b1", reflect.Bool, true, 0, 0, 0},
+		{"b2", reflect.Bool, false, 0, 0, 0},
+		{"f", reflect.Func, "main.barfoo", 0, 0, 0},
+		{"ba", reflect.Slice, nil, 200, 200, 64},
+	}
+
+	withTestProcess("testvariables", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue() returned an error")
+
+		for _, tc := range testcases {
+			v, err := evalVariable(p, tc.name)
+			assertNoError(err, t, fmt.Sprintf("EvalVariable(%s)", tc.name))
+
+			if v.Kind != tc.st {
+				t.Fatalf("%s simple type: expected: %s got: %s", tc.name, tc.st, v.Kind.String())
+			}
+			if v.Value == nil && tc.value != nil {
+				t.Fatalf("%s value: expected: %v got: %v", tc.name, tc.value, v.Value)
+			} else {
+				switch v.Kind {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					x, _ := constant.Int64Val(v.Value)
+					if y, ok := tc.value.(int64); !ok || x != y {
+						t.Fatalf("%s value: expected: %v got: %v", tc.name, tc.value, v.Value)
+					}
+				case reflect.Float32, reflect.Float64:
+					x, _ := constant.Float64Val(v.Value)
+					if y, ok := tc.value.(float64); !ok || x != y {
+						t.Fatalf("%s value: expected: %v got: %v", tc.name, tc.value, v.Value)
+					}
+				case reflect.Complex64, reflect.Complex128:
+					xr, _ := constant.Float64Val(constant.Real(v.Value))
+					xi, _ := constant.Float64Val(constant.Imag(v.Value))
+					if y, ok := tc.value.(complex128); !ok || complex(xr, xi) != y {
+						t.Fatalf("%s value: expected: %v got: %v", tc.name, tc.value, v.Value)
+					}
+				case reflect.String:
+					if y, ok := tc.value.(string); !ok || constant.StringVal(v.Value) != y {
+						t.Fatalf("%s value: expected: %v got: %v", tc.name, tc.value, v.Value)
+					}
+				}
+			}
+			if v.Len != tc.length {
+				t.Fatalf("%s len: expected: %d got: %d", tc.name, tc.length, v.Len)
+			}
+			if v.Cap != tc.cap {
+				t.Fatalf("%s cap: expected: %d got: %d", tc.name, tc.cap, v.Cap)
+			}
+			if len(v.Children) != tc.childrenlen {
+				t.Fatalf("%s children len: expected %d got: %d", tc.name, tc.childrenlen, len(v.Children))
+			}
+		}
+	})
+}
+
+func TestFrameEvaluation(t *testing.T) {
+	withTestProcess("goroutinestackprog", t, func(p *Process, fixture protest.Fixture) {
+		_, err := setFunctionBreakpoint(p, "main.stacktraceme")
+		assertNoError(err, t, "setFunctionBreakpoint")
+		assertNoError(p.Continue(), t, "Continue()")
+
+		/**** Testing evaluation on goroutines ****/
+		gs, err := p.GoroutinesInfo()
+		assertNoError(err, t, "GoroutinesInfo")
+		found := make([]bool, 10)
+		for _, g := range gs {
+			frame := -1
+			frames, err := p.GoroutineStacktrace(g, 10)
+			assertNoError(err, t, "GoroutineStacktrace()")
+			for i := range frames {
+				if frames[i].Call.Fn != nil && frames[i].Call.Fn.Name == "main.agoroutine" {
+					frame = i
+					break
+				}
+			}
+
+			if frame < 0 {
+				t.Logf("Goroutine %d: could not find correct frame", g.Id)
+				continue
+			}
+
+			scope, err := p.ConvertEvalScope(g.Id, frame)
+			assertNoError(err, t, "ConvertEvalScope()")
+			t.Logf("scope = %v", scope)
+			v, err := scope.EvalVariable("i")
+			t.Logf("v = %v", v)
+			if err != nil {
+				t.Logf("Goroutine %d: %v\n", g.Id, err)
+				continue
+			}
+			vval, _ := constant.Int64Val(v.Value)
+			found[vval] = true
+		}
+
+		for i := range found {
+			if !found[i] {
+				t.Fatalf("Goroutine %d not found\n", i)
+			}
+		}
+
+		/**** Testing evaluation on frames ****/
+		assertNoError(p.Continue(), t, "Continue() 2")
+		g, err := p.CurrentThread.GetG()
+		assertNoError(err, t, "GetG()")
+
+		for i := 0; i <= 3; i++ {
+			scope, err := p.ConvertEvalScope(g.Id, i+1)
+			assertNoError(err, t, fmt.Sprintf("ConvertEvalScope() on frame %d", i+1))
+			v, err := scope.EvalVariable("n")
+			assertNoError(err, t, fmt.Sprintf("EvalVariable() on frame %d", i+1))
+			n, _ := constant.Int64Val(v.Value)
+			t.Logf("frame %d n %d\n", i+1, n)
+			if n != int64(3-i) {
+				t.Fatalf("On frame %d value of n is %d (not %d)", i+1, n, 3-i)
+			}
+		}
+	})
+}
+
+func TestPointerSetting(t *testing.T) {
+	withTestProcess("testvariables3", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue() returned an error")
+
+		pval := func(n int64) {
+			variable, err := evalVariable(p, "p1")
+			assertNoError(err, t, "EvalVariable()")
+			c0val, _ := constant.Int64Val(variable.Children[0].Value)
+			if c0val != n {
+				t.Fatalf("Wrong value of p1, *%d expected *%d", c0val, n)
+			}
+		}
+
+		pval(1)
+
+		// change p1 to point to i2
+		scope, err := p.CurrentThread.Scope()
+		assertNoError(err, t, "Scope()")
+		i2addr, err := scope.EvalExpression("i2")
+		assertNoError(err, t, "EvalExpression()")
+		assertNoError(setVariable(p, "p1", fmt.Sprintf("(*int)(0x%x)", i2addr.Addr)), t, "SetVariable()")
+		pval(2)
+
+		// change the value of i2 check that p1 also changes
+		assertNoError(setVariable(p, "i2", "5"), t, "SetVariable()")
+		pval(5)
+	})
+}
+
+func TestVariableFunctionScoping(t *testing.T) {
+	withTestProcess("testvariables", t, func(p *Process, fixture protest.Fixture) {
+		err := p.Continue()
+		assertNoError(err, t, "Continue() returned an error")
+
+		_, err = evalVariable(p, "a1")
+		assertNoError(err, t, "Unable to find variable a1")
+
+		_, err = evalVariable(p, "a2")
+		assertNoError(err, t, "Unable to find variable a1")
+
+		// Move scopes, a1 exists here by a2 does not
+		err = p.Continue()
+		assertNoError(err, t, "Continue() returned an error")
+
+		_, err = evalVariable(p, "a1")
+		assertNoError(err, t, "Unable to find variable a1")
+
+		_, err = evalVariable(p, "a2")
+		if err == nil {
+			t.Fatalf("Can eval out of scope variable a2")
+		}
+	})
+}
+
+func TestRecursiveStructure(t *testing.T) {
+	withTestProcess("testvariables2", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue()")
+		v, err := evalVariable(p, "aas")
+		assertNoError(err, t, "EvalVariable()")
+		t.Logf("v: %v\n", v)
 	})
 }
