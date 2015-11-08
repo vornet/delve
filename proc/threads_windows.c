@@ -23,9 +23,9 @@ SIZE_T write_memory(HANDLE hProcess, void* addr, void *d, int len) {
 int thread_basic_information(HANDLE h, THREAD_BASIC_INFORMATION* addr) {
 	pNtQIT NtQueryInformationThread = (pNtQIT)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtQueryInformationThread");
 
-    if(NtQueryInformationThread == NULL) 
-        return 0;
-		
+	if(NtQueryInformationThread == NULL) 
+		return 0;
+
 	NTSTATUS status = NtQueryInformationThread(h,ThreadBasicInformation,addr,48, 0);
 	return status;
 }

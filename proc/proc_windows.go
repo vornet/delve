@@ -254,8 +254,9 @@ func (dbp *Process) parseDebugLineInfo(exe *pe.File, wg *sync.WaitGroup) {
 
 func (dbp *Process) findExecutable(path string) (*pe.File, error) {
 	if path == "" {
-		// TODO: When is this needed?
-		path = fmt.Sprintf("/proc/%d/exe", dbp.Pid)
+		// TODO: Find executable path from PID/handle on Windows:
+		// https://msdn.microsoft.com/en-us/library/aa366789(VS.85).aspx
+		return nil, fmt.Errorf("Not yet implemented")
 	}
 	f, err := os.OpenFile(path, 0, os.ModePerm)
 	if err != nil {
