@@ -328,6 +328,7 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 			return nil, err	
 		}
 		if tid == 0 {
+			dbp.postExit()
 			return nil, ProcessExitedError{Pid: dbp.Pid, Status: exitCode}
 		}
 		th, err := dbp.handleBreakpointOnThread(tid)
