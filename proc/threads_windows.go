@@ -67,6 +67,7 @@ func (t *Thread) singleStep() error {
 }
 
 func (t *Thread) resume() error {
+	t.running = true
 	var res C.WINBOOL
 	t.dbp.execPtraceFunc(func() {
 		//TODO: Note that we are ignoring the thread we were asked to continue and are continuing the 
