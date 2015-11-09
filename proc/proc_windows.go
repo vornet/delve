@@ -302,7 +302,7 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 
 			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
 			continue
-		case C.LOAD_DLL_DEBUG_EVENT, C.UNLOAD_DLL_DEBUG_EVENT, C.EXIT_THREAD_DEBUG_EVENT:
+		case C.LOAD_DLL_DEBUG_EVENT, C.UNLOAD_DLL_DEBUG_EVENT, C.EXIT_THREAD_DEBUG_EVENT, C.OUTPUT_DEBUG_STRING_EVENT, C.RIP_EVENT:
 			C.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, C.DBG_CONTINUE)
 			continue
 		case C.EXCEPTION_DEBUG_EVENT:
