@@ -5,6 +5,7 @@ import "C"
 import (
 	"fmt"
 	"bytes"
+	"unsafe"
 )
 
 type Regs struct {
@@ -87,14 +88,14 @@ func (r *Regs) SetPC(thread *Thread, pc uint64) error {
 	var context C.CONTEXT
 	context.ContextFlags = C.CONTEXT_ALL;
 	
-	res, err := C.GetThreadContext(thread.os.hThread, &context)
+	res, err := C.GetThreadContext(C.HANDLE(unsafe.Pointer(thread.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
 	
 	context.Rip = C.DWORD64(pc)
 	
-	res, err = C.SetThreadContext(thread.os.hThread, &context)
+	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(thread.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
@@ -106,13 +107,13 @@ func registers(thread *Thread) (Registers, error) {
 	var context C.CONTEXT
 	
 	context.ContextFlags = C.CONTEXT_ALL;
-	res := C.GetThreadContext(thread.os.hThread, &context)
+	res := C.GetThreadContext(C.HANDLE(unsafe.Pointer(thread.os.hThread)), &context)
 	if res == 0 {
 		return nil, fmt.Errorf("Failed to read ThreadContext")
 	}
 
 	var threadInfo C.THREAD_BASIC_INFORMATION
-	status := C.thread_basic_information(thread.os.hThread, &threadInfo)
+	status := C.thread_basic_information(C.HANDLE(unsafe.Pointer(thread.os.hThread)), &threadInfo)
 	if status != 0 {
 		return nil, fmt.Errorf("Failed to get thread_basic_information")
 	}

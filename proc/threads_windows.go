@@ -5,13 +5,14 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
+	"syscall"
 	sys "golang.org/x/sys/windows"
 )
 
 type WaitStatus sys.WaitStatus
 
 type OSSpecificDetails struct {
-	hThread C.HANDLE
+	hThread syscall.Handle
 }
 
 func (t *Thread) halt() (err error) {
@@ -24,7 +25,7 @@ func (t *Thread) singleStep() error {
 	var context C.CONTEXT
 	context.ContextFlags = C.CONTEXT_ALL;
 	
-	res, err := C.GetThreadContext(t.os.hThread, &context)
+	res, err := C.GetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
@@ -34,7 +35,7 @@ func (t *Thread) singleStep() error {
 	context.EFlags |= 0x100;
 	
 	
-	res, err = C.SetThreadContext(t.os.hThread, &context)
+	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
@@ -51,14 +52,14 @@ func (t *Thread) singleStep() error {
 		return err
 	}
 	
-	res, err = C.GetThreadContext(t.os.hThread, &context)
+	res, err = C.GetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
 		
 	context.EFlags ^= 0x100;
 	
-	res, err = C.SetThreadContext(t.os.hThread, &context)
+	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
@@ -115,7 +116,7 @@ func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
 		vm_addr = unsafe.Pointer(addr)
 		length  = C.int(len(data))
 	)
-	ret := C.write_memory(thread.dbp.os.hProcess, vm_addr, vm_data, length)
+	ret := C.write_memory(C.HANDLE(unsafe.Pointer(thread.dbp.os.hProcess)), vm_addr, vm_data, length)
 	if ret < 0 {
 		return int(ret), fmt.Errorf("could not write memory")
 	}
@@ -133,7 +134,7 @@ func (thread *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
 		length  = C.int(size)
 	)
 
-	ret := C.read_memory(thread.dbp.os.hProcess, vm_addr, vm_data, length)
+	ret := C.read_memory(C.HANDLE(unsafe.Pointer(thread.dbp.os.hProcess)), vm_addr, vm_data, length)
 	if ret < 0 {
 		return nil, fmt.Errorf("could not read memory")
 	}

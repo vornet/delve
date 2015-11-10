@@ -23,7 +23,7 @@ import (
 
 // Windows specific information.
 type OSProcessDetails struct {
-	hProcess	C.HANDLE
+	hProcess	syscall.Handle
 	breakThread int
 }
 
@@ -87,13 +87,13 @@ func (dbp *Process) Kill() (err error) {
 	// TODO: Should not have to ignore failures here,
 	// but some tests appear to Kill twice causing 
 	// this to fail on second attempt.
-	_ = C.TerminateProcess(dbp.os.hProcess, 1)
+	_ = C.TerminateProcess(C.HANDLE(unsafe.Pointer(dbp.os.hProcess)), 1)
 	dbp.exited = true
 	return
 }
 
 func (dbp *Process) requestManualStop() (err error) {
-	res := C.DebugBreakProcess(dbp.os.hProcess)
+	res := C.DebugBreakProcess(C.HANDLE(unsafe.Pointer(dbp.os.hProcess)))
 	if res == 0 {
 		return fmt.Errorf("Failed to break process %d", dbp.Pid)	
 	}
@@ -107,7 +107,7 @@ func (dbp *Process) updateThreadList() error {
 	return nil
 }
 
-func (dbp *Process) addThread(hThread C.HANDLE, threadID int, attach bool) (*Thread, error) {
+func (dbp *Process) addThread(hThread syscall.Handle, threadID int, attach bool) (*Thread, error) {
 	if thread, ok := dbp.Threads[threadID]; ok {
 		return thread, nil
 	}
@@ -283,8 +283,8 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 		switch debugEvent.dwDebugEventCode {
 		case C.CREATE_PROCESS_DEBUG_EVENT:
 			debugInfo := (*C.CREATE_PROCESS_DEBUG_INFO)(unionPtr)
-			dbp.os.hProcess = C.HANDLE(debugInfo.hProcess)
-			_, err = dbp.addThread(debugInfo.hThread, int(debugEvent.dwThreadId), false)
+			dbp.os.hProcess = syscall.Handle(unsafe.Pointer(debugInfo.hProcess))
+			_, err = dbp.addThread(syscall.Handle(unsafe.Pointer(debugInfo.hThread)), int(debugEvent.dwThreadId), false)
 			if err != nil {
 				return 0, 0, err
 			}
@@ -294,7 +294,7 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 		case C.CREATE_THREAD_DEBUG_EVENT:
 			debugInfo := (*C.CREATE_THREAD_DEBUG_INFO)(unionPtr)
 
-			_, err = dbp.addThread(debugInfo.hThread, int(debugEvent.dwThreadId), false)
+			_, err = dbp.addThread(syscall.Handle(unsafe.Pointer(debugInfo.hThread)), int(debugEvent.dwThreadId), false)
 			if err != nil {
 				return 0, 0, err
 			}
