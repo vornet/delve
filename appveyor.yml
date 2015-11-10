@@ -4,12 +4,6 @@ clone_folder: c:\gopath\src\github.com\derekparker\delve
 environment:
   GOPATH: c:\gopath
 install:
-  - echo %PATH%
-  - echo %GOPATH%
-  - go version
-  - go env
-  - go get github.com/tools/godep
-  - "c:\gopath\bin\godep restore"
   - ps: |
     # Install MinGW.
     if (-Not (Test-Path "C:\mingw64")) {
@@ -19,7 +13,13 @@ install:
             Invoke-WebRequest -UserAgent wget -Uri $url -OutFile $file
             &7z x -oC:\ $file > $null
     }
-  	$env:path = "C:\mingw64\bin;" + $env:path
+  - set PATH=c:\mingw64\bin;%GOPATH%\bin;%PATH%
+  - echo %PATH%
+  - echo %GOPATH%
+  - go version
+  - go env
+  - go get github.com/tools/godep
+  - godep restore
 cache: C:\mingw64
 build_script:
 - mingw32-make install
