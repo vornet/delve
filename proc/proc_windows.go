@@ -55,7 +55,6 @@ func Launch(cmd []string) (*Process, error) {
 	defer sys.CloseHandle(sys.Handle(pi.Thread))
 	
 	dbp := New(int(pi.ProcessId))
-	dbp.os.hProcess = C.HANDLE(pi.Process)
 
 	switch runtime.GOARCH {
 	case "amd64":
@@ -284,7 +283,7 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 		switch debugEvent.dwDebugEventCode {
 		case C.CREATE_PROCESS_DEBUG_EVENT:
 			debugInfo := (*C.CREATE_PROCESS_DEBUG_INFO)(unionPtr)
-			
+			dbp.os.hProcess = C.HANDLE(debugInfo.hProcess)
 			_, err = dbp.addThread(debugInfo.hThread, int(debugEvent.dwThreadId), false)
 			if err != nil {
 				return 0, 0, err
