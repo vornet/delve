@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"runtime"
 
 	"github.com/derekparker/delve/service/api"
 )
@@ -116,10 +115,7 @@ func parseLocationSpecDefault(locStr, rest string) (LocationSpec, error) {
 	spec := &NormalLocationSpec{}
 
 	spec.Base = v[0]
-	if runtime.GOOS == "windows" {
-		// Normalize paths to "/" to match Go symbol table paths
-		spec.Base = strings.Replace(spec.Base, "\\", "/", -1)
-	}
+	spec.Base = filepath.ToSlash(spec.Base)
 	spec.FuncBase = parseFuncLocationSpec(spec.Base)
 
 	if len(v) < 2 {

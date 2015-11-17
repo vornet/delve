@@ -21,6 +21,11 @@ import (
 	"github.com/derekparker/delve/dwarf/frame"
 )
 
+const (
+	// See https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
+	DEBUG_ONLY_THIS_PROCESS = 0x00000002
+)
+
 // Windows specific information.
 type OSProcessDetails struct {
 	hProcess	syscall.Handle
@@ -47,8 +52,7 @@ func Launch(cmd []string) (*Process, error) {
 
 	pi := new(sys.ProcessInformation)
 	si := new(sys.StartupInfo)
-	err = sys.CreateProcess(argv0, nil, nil, nil, true, 2, nil, nil, si, pi)
-
+	err = sys.CreateProcess(argv0, nil, nil, nil, true, DEBUG_ONLY_THIS_PROCESS, nil, nil, si, pi)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +69,7 @@ func Launch(cmd []string) (*Process, error) {
 		// TODO - We're ignoring the results because we assume we'll immediately hit
 		// the default breakpoint that Windows sets at process creation.
 		// Should perhaps be testing that we're not overlooking an exit event or similar?
+		// Should return ProcessExitedError if the process exits (if that is even possible?).
 		_, _, err = dbp.waitForDebugEvent()
 	})
 	
@@ -363,7 +368,7 @@ func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	return 0, nil, fmt.Errorf("Not implemented: wait")
 }
 
-func killProcess(pid int) (err error) {
+func killProcess(pid int) error {
 	fmt.Println("killProcess")
 	return fmt.Errorf("Not implemented: killProcess")
 }

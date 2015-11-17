@@ -34,7 +34,6 @@ func (t *Thread) singleStep() error {
 	//context.Rip--;
 	context.EFlags |= 0x100;
 	
-	
 	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
