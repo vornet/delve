@@ -9,8 +9,11 @@ import (
 	sys "golang.org/x/sys/windows"
 )
 
+// WaitStatus is a synonym for the platform-specific WaitStatus
 type WaitStatus sys.WaitStatus
 
+// OSSpecificDetails holds information specific to the Windows
+// operating system / kernel.
 type OSSpecificDetails struct {
 	hThread syscall.Handle
 }
@@ -80,14 +83,14 @@ func (t *Thread) resume() error {
 	return nil
 }
 
-func (thread *Thread) blocked() bool {
+func (t *Thread) blocked() bool {
 	// TODO: Probably incorrect - what are teh runtime functions that
 	// indicate blocking on Windows?
-	pc, err := thread.PC()
+	pc, err := t.PC()
 	if err != nil {
 		return false
 	}
-	fn := thread.dbp.goSymTable.PCToFunc(pc)
+	fn := t.dbp.goSymTable.PCToFunc(pc)
 	if fn == nil {
 		return false
 	}
@@ -99,41 +102,41 @@ func (thread *Thread) blocked() bool {
 	}
 }
 
-func (thread *Thread) stopped() bool {
+func (t *Thread) stopped() bool {
 	// TODO: We are assuming that threads are always stopped
 	// during command exection.
 	return true 
 }
 
-func (thread *Thread) canContinue() bool {
-	return thread.dbp.os.breakThread == thread.Id
+func (t *Thread) canContinue() bool {
+	return t.dbp.os.breakThread == t.ID
 }
 
-func (thread *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
+func (t *Thread) writeMemory(addr uintptr, data []byte) (int, error) {
 	var (
-		vm_data = unsafe.Pointer(&data[0])
-		vm_addr = unsafe.Pointer(addr)
+		vmData = unsafe.Pointer(&data[0])
+		vmAddr = unsafe.Pointer(addr)
 		length  = C.int(len(data))
 	)
-	ret := C.write_memory(C.HANDLE(unsafe.Pointer(thread.dbp.os.hProcess)), vm_addr, vm_data, length)
+	ret := C.write_memory(C.HANDLE(unsafe.Pointer(t.dbp.os.hProcess)), vmAddr, vmData, length)
 	if ret < 0 {
 		return int(ret), fmt.Errorf("could not write memory")
 	}
 	return int(ret), nil
 }
 
-func (thread *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
+func (t *Thread) readMemory(addr uintptr, size int) ([]byte, error) {
 	if size == 0 {
 		return nil, nil
 	}
 	var (
 		buf     = make([]byte, size)
-		vm_data = unsafe.Pointer(&buf[0])
-		vm_addr = unsafe.Pointer(addr)
+		vmData = unsafe.Pointer(&buf[0])
+		vmAddr = unsafe.Pointer(addr)
 		length  = C.int(size)
 	)
 
-	ret := C.read_memory(C.HANDLE(unsafe.Pointer(thread.dbp.os.hProcess)), vm_addr, vm_data, length)
+	ret := C.read_memory(C.HANDLE(unsafe.Pointer(t.dbp.os.hProcess)), vmAddr, vmData, length)
 	if ret < 0 {
 		return nil, fmt.Errorf("could not read memory")
 	}

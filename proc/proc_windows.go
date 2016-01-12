@@ -22,17 +22,21 @@ import (
 )
 
 const (
-	// See https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
-	DEBUG_ONLY_THIS_PROCESS = 0x00000002
+	// DEBUGONLYTHISPROCESS tracks https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
+	DEBUGONLYTHISPROCESS = 0x00000002
 )
 
-// Windows specific information.
+// OSProcessDetails holds Windows specific information.
 type OSProcessDetails struct {
 	hProcess	syscall.Handle
 	breakThread int
 }
 
-// Create and begin debugging a new process.
+// ErrContinueThread is the error returned when a thread could not
+// be continued.
+var ErrContinueThread = fmt.Errorf("could not continue thread")
+
+// Launch creates and begins debugging a new process.
 func Launch(cmd []string) (*Process, error) {
 	argv0Go, err := filepath.Abs(cmd[0])
 	if err != nil {
@@ -52,7 +56,7 @@ func Launch(cmd []string) (*Process, error) {
 
 	pi := new(sys.ProcessInformation)
 	si := new(sys.StartupInfo)
-	err = sys.CreateProcess(argv0, nil, nil, nil, true, DEBUG_ONLY_THIS_PROCESS, nil, nil, si, pi)
+	err = sys.CreateProcess(argv0, nil, nil, nil, true, DEBUGONLYTHISPROCESS, nil, nil, si, pi)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +86,7 @@ func Attach(pid int) (*Process, error) {
 	return nil, fmt.Errorf("Not implemented: Attach")
 }
 
+// Kill kills the process.
 func (dbp *Process) Kill() (err error) {
 	if dbp.exited {
 		return nil
@@ -117,14 +122,14 @@ func (dbp *Process) addThread(hThread syscall.Handle, threadID int, attach bool)
 		return thread, nil
 	}
 	thread := &Thread{
-		Id:  threadID,
+		ID:  threadID,
 		dbp: dbp,
 		os:  new(OSSpecificDetails),
 	}
 	thread.os.hThread = hThread
 	dbp.Threads[threadID] = thread
 	if dbp.CurrentThread == nil {
-		dbp.SwitchThread(thread.Id)
+		dbp.SwitchThread(thread.ID)
 	}
 	return thread, nil
 }
@@ -316,7 +321,7 @@ func (dbp *Process) waitForDebugEvent() (threadID, exitCode int, err error) {
 			debugInfo := (*C.EXIT_PROCESS_DEBUG_INFO)(unionPtr)
 			return 0, int(debugInfo.dwExitCode), nil
 		default:
-			return 0, 0, fmt.Errorf("Unknown event code: ", debugEvent.dwDebugEventCode)	
+			return 0, 0, fmt.Errorf("Unknown event code: %d", debugEvent.dwDebugEventCode)
 		}
 	}
 }
@@ -336,21 +341,18 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 			dbp.postExit()
 			return nil, ProcessExitedError{Pid: dbp.Pid, Status: exitCode}
 		}
-		th, err := dbp.handleBreakpointOnThread(tid)
-		if err != nil {
-			if _, ok := err.(NoBreakpointError); !ok {
-				return nil, err
-			}
-			thread := dbp.Threads[tid]
+		
+		th, ok := dbp.Threads[tid]
+        if !ok {
 			if dbp.halt {
 				dbp.halt = false
-				return thread, nil
+				return th, nil
 			}
-			if dbp.firstStart || thread.singleStepping {
+			if dbp.firstStart || th.singleStepping {
 				dbp.firstStart = false
-				return thread, nil
+				return th, nil
 			}
-			if err := thread.Continue(); err != nil {
+			if err := th.Continue(); err != nil {
 				return nil, err
 			}
 			continue
@@ -366,6 +368,46 @@ func (dbp *Process) loadProcessInformation(wg *sync.WaitGroup) {
 func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	fmt.Println("wait")
 	return 0, nil, fmt.Errorf("Not implemented: wait")
+}
+
+func (dbp *Process) setCurrentBreakpoints(trapthread *Thread) error {
+	for _, th := range dbp.Threads {
+		if th.CurrentBreakpoint == nil {
+			err := th.SetCurrentBreakpoint()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (dbp *Process) exitGuard(err error) error {
+	if err != ErrContinueThread {
+		return err
+	}
+	return ProcessExitedError{Pid: dbp.Pid, Status: 0}
+}
+
+func (dbp *Process) resume() error {
+	// all threads stopped over a breakpoint are made to step over it
+	for _, thread := range dbp.Threads {
+		if thread.CurrentBreakpoint != nil {
+			if err := thread.Step(); err != nil {
+				return err
+			}
+			thread.CurrentBreakpoint = nil
+		}
+	}
+	// everything is resumed
+	var res C.WINBOOL
+	dbp.execPtraceFunc(func() {	
+		res = C.ContinueDebugEvent(C.DWORD(dbp.Pid), C.DWORD(dbp.os.breakThread), C.DBG_CONTINUE)
+	})
+	if res == 0 {
+		return fmt.Errorf("Could not ContinueDebugEvent.")	
+	}
+	return nil
 }
 
 func killProcess(pid int) error {

@@ -89,7 +89,7 @@ func (t *Thread) stopped() bool {
 	return C.thread_blocked(t.os.threadAct) > C.int(0)
 }
 
-func (thread *Thread) canContinue() bool {
+func (t *Thread) canContinue() bool {
 	return true
 }
 
