@@ -2,7 +2,7 @@ package proc
 
 import "fmt"
 
-// Represents a single breakpoint. Stores information on the break
+// Breakpoint represents a breakpoint. Stores information on the break
 // point including the byte of data that originally was stored at that
 // address.
 type Breakpoint struct {
@@ -23,6 +23,8 @@ type Breakpoint struct {
 	Variables     []string       // Variables to evaluate
 	HitCount      map[int]uint64 // Number of times a breakpoint has been reached in a certain goroutine
 	TotalHitCount uint64         // Number of times a breakpoint has been reached
+
+	Cond int // When Cond is greater than zero this breakpoint will trigger only when the current goroutine id is equal to it
 }
 
 func (bp *Breakpoint) String() string {
@@ -38,7 +40,7 @@ func (bp *Breakpoint) Clear(thread *Thread) (*Breakpoint, error) {
 	return bp, nil
 }
 
-// Returned when trying to set a breakpoint at
+// BreakpointExistsError is returned when trying to set a breakpoint at
 // an address that already has a breakpoint set for it.
 type BreakpointExistsError struct {
 	file string
@@ -76,6 +78,7 @@ func (dbp *Process) setBreakpoint(tid int, addr uint64, temp bool) (*Breakpoint,
 		Line:         l,
 		Addr:         addr,
 		Temp:         temp,
+		Cond:         -1,
 		HitCount:     map[int]uint64{},
 	}
 
@@ -106,7 +109,19 @@ func (dbp *Process) writeSoftwareBreakpoint(thread *Thread, addr uint64) error {
 	return err
 }
 
-// Error thrown when trying to clear a breakpoint that does not exist.
+func (bp *Breakpoint) checkCondition(thread *Thread) bool {
+	if bp.Cond < 0 {
+		return true
+	}
+	g, err := thread.GetG()
+	if err != nil {
+		return false
+	}
+	return g.ID == bp.Cond
+}
+
+// NoBreakpointError is returned when trying to
+// clear a breakpoint that does not exist.
 type NoBreakpointError struct {
 	addr uint64
 }

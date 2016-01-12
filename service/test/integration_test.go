@@ -96,7 +96,7 @@ func TestRestart_duringStop(t *testing.T) {
 			t.Fatal(err)
 		}
 		state := <-c.Continue()
-		if state.Breakpoint == nil {
+		if state.CurrentThread.Breakpoint == nil {
 			t.Fatal("did not hit breakpoint")
 		}
 		if err := c.Restart(); err != nil {
@@ -433,12 +433,12 @@ func TestClientServer_traceContinue(t *testing.T) {
 		count := 0
 		contChan := c.Continue()
 		for state := range contChan {
-			if state.Breakpoint != nil {
+			if state.CurrentThread != nil && state.CurrentThread.Breakpoint != nil {
 				count++
 
 				t.Logf("%v", state)
 
-				bpi := state.BreakpointInfo
+				bpi := state.CurrentThread.BreakpointInfo
 
 				if bpi.Goroutine == nil {
 					t.Fatalf("No goroutine information")
@@ -494,8 +494,8 @@ func TestClientServer_traceContinue2(t *testing.T) {
 		countSayhi := 0
 		contChan := c.Continue()
 		for state := range contChan {
-			if state.Breakpoint != nil {
-				switch state.Breakpoint.ID {
+			if state.CurrentThread != nil && state.CurrentThread.Breakpoint != nil {
+				switch state.CurrentThread.Breakpoint.ID {
 				case bp1.ID:
 					countMain++
 				case bp2.ID:
@@ -573,7 +573,11 @@ func TestClientServer_FindLocations(t *testing.T) {
 		findLocationHelper(t, c, "main.(*SomeType).String", false, 1, someTypeStringFuncAddr)
 
 		// Issue #275
-		findLocationHelper(t, c, "io/ioutil.ReadFile", false, 1, 0)
+		readfile := findLocationHelper(t, c, "io/ioutil.ReadFile", false, 1, 0)[0]
+
+		// Issue #296
+		findLocationHelper(t, c, "/io/ioutil.ReadFile", false, 1, readfile)
+		findLocationHelper(t, c, "ioutil.ReadFile", false, 1, readfile)
 
 		stringAddrs := findLocationHelper(t, c, "/^main.*Type.*String$/", false, 2, 0)
 

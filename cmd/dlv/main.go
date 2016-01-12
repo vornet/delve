@@ -24,11 +24,19 @@ import (
 
 const version string = "0.10.0-alpha"
 
+// Build is the current git hash.
+var Build string
+
 var (
-	Log        bool
-	Headless   bool
-	Addr       string
-	InitFile   string
+	// Log is whether to log debug statements.
+	Log bool
+	// Headless is whether to run without terminal.
+	Headless bool
+	// Addr is the debugging server listen address.
+	Addr string
+	// InitFile is the path to initialization file.
+	InitFile string
+	// BuildFlags is the flags passed during compiler invocation.
 	BuildFlags string
 )
 
@@ -66,7 +74,7 @@ The goal of this tool is to provide a simple yet powerful interface for debuggin
 		Use:   "version",
 		Short: "Prints version.",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Delve version: " + version)
+			fmt.Printf("Delve Debugger\nVersion: %s\nBuild: %s\n", version, Build)
 		},
 	}
 	rootCommand.AddCommand(versionCommand)
@@ -191,27 +199,35 @@ starts and attaches to it, and enables you to immediately begin debugging your p
 				for {
 					select {
 					case state := <-stateChan:
+						if state == nil {
+							return 0
+						}
 						if state.Err != nil {
 							fmt.Fprintln(os.Stderr, state.Err)
 							return 0
 						}
-						var args []string
-						var fname string
-						if state.CurrentThread != nil && state.CurrentThread.Function != nil {
-							fname = state.CurrentThread.Function.Name
-						}
-						if state.BreakpointInfo != nil {
-							for _, arg := range state.BreakpointInfo.Arguments {
-								args = append(args, arg.SinglelineString())
+						for i := range state.Threads {
+							th := state.Threads[i]
+							if th.Breakpoint == nil {
+								continue
 							}
+							var args []string
+							var fname string
+							if th.Function != nil {
+								fname = th.Function.Name
+							}
+							if th.BreakpointInfo != nil {
+								for _, arg := range th.BreakpointInfo.Arguments {
+									args = append(args, arg.SinglelineString())
+								}
+							}
+							fmt.Printf("%s(%s) %s:%d\n", fname, strings.Join(args, ", "), terminal.ShortenFilePath(th.File), th.Line)
 						}
-						fmt.Printf("%s(%s) %s:%d\n", fname, strings.Join(args, ", "), state.CurrentThread.File, state.CurrentThread.Line)
 					case <-sigChan:
 						server.Stop(traceAttachPid == 0)
 						return 1
 					}
 				}
-				return 0
 			}()
 			os.Exit(status)
 		},
@@ -300,7 +316,7 @@ func connect(addr string, conf *config.Config) int {
 	var client service.Client
 	client = rpc.NewClient(addr)
 	term := terminal.New(client, conf)
-	err, status := term.Run()
+	status, err := term.Run()
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -338,7 +354,7 @@ func execute(attachPid int, processArgs []string, conf *config.Config) int {
 		client = rpc.NewClient(listener.Addr().String())
 		term := terminal.New(client, conf)
 		term.InitFile = InitFile
-		err, status = term.Run()
+		status, err = term.Run()
 	} else {
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT)

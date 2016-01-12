@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	os.Exit(protest.RunTestsWithFixtures(m))
 }
 
-func withTestProcess(name string, t *testing.T, fn func(p *Process, fixture protest.Fixture)) {
+func withTestProcess(name string, t testing.TB, fn func(p *Process, fixture protest.Fixture)) {
 	fixture := protest.BuildFixture(name)
 	p, err := Launch([]string{fixture.Path})
 	if err != nil {
@@ -54,7 +54,7 @@ func dataAtAddr(thread *Thread, addr uint64) ([]byte, error) {
 	return thread.readMemory(uintptr(addr), 1)
 }
 
-func assertNoError(err error, t *testing.T, s string) {
+func assertNoError(err error, t testing.TB, s string) {
 	if err != nil {
 		_, file, line, _ := runtime.Caller(1)
 		fname := filepath.Base(file)
@@ -94,6 +94,25 @@ func TestExit(t *testing.T) {
 	})
 }
 
+func TestExitAfterContinue(t *testing.T) {
+	withTestProcess("continuetestprog", t, func(p *Process, fixture protest.Fixture) {
+		_, err := setFunctionBreakpoint(p, "main.sayhi")
+		assertNoError(err, t, "setFunctionBreakpoint()")
+		assertNoError(p.Continue(), t, "First Continue()")
+		err = p.Continue()
+		pe, ok := err.(ProcessExitedError)
+		if !ok {
+			t.Fatalf("Continue() returned unexpected error type %s", err)
+		}
+		if pe.Status != 0 {
+			t.Errorf("Unexpected error status: %d", pe.Status)
+		}
+		if pe.Pid != p.Pid {
+			t.Errorf("Unexpected process id: %d", pe.Pid)
+		}
+	})
+}
+
 func setFunctionBreakpoint(p *Process, fname string) (*Breakpoint, error) {
 	addr, err := p.FindFunctionLocation(fname, true, 0)
 	if err != nil {
@@ -110,7 +129,7 @@ func TestHalt(t *testing.T) {
 		assertNoError(p.Continue(), t, "Continue")
 		for _, th := range p.Threads {
 			if th.running != false {
-				t.Fatal("expected running = false for thread", th.Id)
+				t.Fatal("expected running = false for thread", th.ID)
 			}
 			_, err := th.Registers()
 			assertNoError(err, t, "Registers")
@@ -136,7 +155,7 @@ func TestHalt(t *testing.T) {
 				t.Fatal("expected thread to be stopped, but was not")
 			}
 			if th.running != false {
-				t.Fatal("expected running = false for thread", th.Id)
+				t.Fatal("expected running = false for thread", th.ID)
 			}
 			_, err := th.Registers()
 			assertNoError(err, t, "Registers")
@@ -312,18 +331,20 @@ func TestNextConcurrent(t *testing.T) {
 		{10, 11},
 	}
 	withTestProcess("parallel_next", t, func(p *Process, fixture protest.Fixture) {
-		_, err := setFunctionBreakpoint(p, "main.sayhi")
+		bp, err := setFunctionBreakpoint(p, "main.sayhi")
 		assertNoError(err, t, "SetBreakpoint")
 		assertNoError(p.Continue(), t, "Continue")
 		f, ln := currentLineNumber(p, t)
 		initV, err := evalVariable(p, "n")
 		initVval, _ := constant.Int64Val(initV.Value)
 		assertNoError(err, t, "EvalVariable")
+		_, err = p.ClearBreakpoint(bp.Addr)
+		assertNoError(err, t, "ClearBreakpoint()")
 		for _, tc := range testcases {
 			g, err := p.CurrentThread.GetG()
 			assertNoError(err, t, "GetG()")
-			if p.SelectedGoroutine.Id != g.Id {
-				t.Fatalf("SelectedGoroutine not CurrentThread's goroutine: %d %d", g.Id, p.SelectedGoroutine.Id)
+			if p.SelectedGoroutine.ID != g.ID {
+				t.Fatalf("SelectedGoroutine not CurrentThread's goroutine: %d %d", g.ID, p.SelectedGoroutine.ID)
 			}
 			if ln != tc.begin {
 				t.Fatalf("Program not stopped at correct spot expected %d was %s:%d", tc.begin, filepath.Base(f), ln)
@@ -338,6 +359,55 @@ func TestNextConcurrent(t *testing.T) {
 			vval, _ := constant.Int64Val(v.Value)
 			if vval != initVval {
 				t.Fatal("Did not end up on same goroutine")
+			}
+		}
+	})
+}
+
+func TestNextConcurrentVariant2(t *testing.T) {
+	// Just like TestNextConcurrent but instead of removing the initial breakpoint we check that when it happens is for other goroutines
+	testcases := []nextTest{
+		{9, 10},
+		{10, 11},
+	}
+	withTestProcess("parallel_next", t, func(p *Process, fixture protest.Fixture) {
+		_, err := setFunctionBreakpoint(p, "main.sayhi")
+		assertNoError(err, t, "SetBreakpoint")
+		assertNoError(p.Continue(), t, "Continue")
+		f, ln := currentLineNumber(p, t)
+		initV, err := evalVariable(p, "n")
+		initVval, _ := constant.Int64Val(initV.Value)
+		assertNoError(err, t, "EvalVariable")
+		for _, tc := range testcases {
+			g, err := p.CurrentThread.GetG()
+			assertNoError(err, t, "GetG()")
+			if p.SelectedGoroutine.ID != g.ID {
+				t.Fatalf("SelectedGoroutine not CurrentThread's goroutine: %d %d", g.ID, p.SelectedGoroutine.ID)
+			}
+			if ln != tc.begin {
+				t.Fatalf("Program not stopped at correct spot expected %d was %s:%d", tc.begin, filepath.Base(f), ln)
+			}
+			assertNoError(p.Next(), t, "Next() returned an error")
+			var vval int64
+			for {
+				v, err := evalVariable(p, "n")
+				assertNoError(err, t, "EvalVariable")
+				vval, _ = constant.Int64Val(v.Value)
+				if p.CurrentThread.CurrentBreakpoint == nil {
+					if vval != initVval {
+						t.Fatal("Did not end up on same goroutine")
+					}
+					break
+				} else {
+					if vval == initVval {
+						t.Fatal("Initial breakpoint triggered twice for the same goroutine")
+					}
+					assertNoError(p.Continue(), t, "Continue 2")
+				}
+			}
+			f, ln = currentLineNumber(p, t)
+			if ln != tc.end {
+				t.Fatalf("Program did not continue to correct next location expected %d was %s:%d", tc.end, filepath.Base(f), ln)
 			}
 		}
 	})
@@ -487,7 +557,7 @@ func TestSwitchThread(t *testing.T) {
 			t.Fatal(err)
 		}
 		var nt int
-		ct := p.CurrentThread.Id
+		ct := p.CurrentThread.ID
 		for tid := range p.Threads {
 			if tid != ct {
 				nt = tid
@@ -502,7 +572,7 @@ func TestSwitchThread(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.CurrentThread.Id != nt {
+		if p.CurrentThread.ID != nt {
 			t.Fatal("Did not switch threads")
 		}
 	})
@@ -594,7 +664,7 @@ func TestStacktrace2(t *testing.T) {
 			for i := range locations {
 				t.Logf("\t%s:%d [%s]\n", locations[i].Call.File, locations[i].Call.Line, locations[i].Call.Fn.Name)
 			}
-			t.Fatalf("Stack error at main.f()\n", locations)
+			t.Fatalf("Stack error at main.f()\n%v\n", locations)
 		}
 
 		assertNoError(p.Continue(), t, "Continue()")
@@ -604,7 +674,7 @@ func TestStacktrace2(t *testing.T) {
 			for i := range locations {
 				t.Logf("\t%s:%d [%s]\n", locations[i].Call.File, locations[i].Call.Line, locations[i].Call.Fn.Name)
 			}
-			t.Fatalf("Stack error at main.g()\n", locations)
+			t.Fatalf("Stack error at main.g()\n%v\n", locations)
 		}
 	})
 
@@ -939,7 +1009,7 @@ func TestFrameEvaluation(t *testing.T) {
 		assertNoError(err, t, "setFunctionBreakpoint")
 		assertNoError(p.Continue(), t, "Continue()")
 
-		/**** Testing evaluation on goroutines ****/
+		// Testing evaluation on goroutines
 		gs, err := p.GoroutinesInfo()
 		assertNoError(err, t, "GoroutinesInfo")
 		found := make([]bool, 10)
@@ -955,17 +1025,17 @@ func TestFrameEvaluation(t *testing.T) {
 			}
 
 			if frame < 0 {
-				t.Logf("Goroutine %d: could not find correct frame", g.Id)
+				t.Logf("Goroutine %d: could not find correct frame", g.ID)
 				continue
 			}
 
-			scope, err := p.ConvertEvalScope(g.Id, frame)
+			scope, err := p.ConvertEvalScope(g.ID, frame)
 			assertNoError(err, t, "ConvertEvalScope()")
 			t.Logf("scope = %v", scope)
 			v, err := scope.EvalVariable("i")
 			t.Logf("v = %v", v)
 			if err != nil {
-				t.Logf("Goroutine %d: %v\n", g.Id, err)
+				t.Logf("Goroutine %d: %v\n", g.ID, err)
 				continue
 			}
 			vval, _ := constant.Int64Val(v.Value)
@@ -978,13 +1048,13 @@ func TestFrameEvaluation(t *testing.T) {
 			}
 		}
 
-		/**** Testing evaluation on frames ****/
+		// Testing evaluation on frames
 		assertNoError(p.Continue(), t, "Continue() 2")
 		g, err := p.CurrentThread.GetG()
 		assertNoError(err, t, "GetG()")
 
 		for i := 0; i <= 3; i++ {
-			scope, err := p.ConvertEvalScope(g.Id, i+1)
+			scope, err := p.ConvertEvalScope(g.ID, i+1)
 			assertNoError(err, t, fmt.Sprintf("ConvertEvalScope() on frame %d", i+1))
 			v, err := scope.EvalVariable("n")
 			assertNoError(err, t, fmt.Sprintf("EvalVariable() on frame %d", i+1))
@@ -1057,5 +1127,218 @@ func TestRecursiveStructure(t *testing.T) {
 		v, err := evalVariable(p, "aas")
 		assertNoError(err, t, "EvalVariable()")
 		t.Logf("v: %v\n", v)
+	})
+}
+
+func TestIssue316(t *testing.T) {
+	// A pointer loop that includes one interface should not send dlv into an infinite loop
+	withTestProcess("testvariables3", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue()")
+		_, err := evalVariable(p, "iface5")
+		assertNoError(err, t, "EvalVariable()")
+	})
+}
+
+func TestIssue325(t *testing.T) {
+	// nil pointer dereference when evaluating interfaces to function pointers
+	withTestProcess("testvariables3", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue()")
+		iface2fn1v, err := evalVariable(p, "iface2fn1")
+		assertNoError(err, t, "EvalVariable()")
+		t.Logf("iface2fn1: %v\n", iface2fn1v)
+
+		iface2fn2v, err := evalVariable(p, "iface2fn2")
+		assertNoError(err, t, "EvalVariable()")
+		t.Logf("iface2fn2: %v\n", iface2fn2v)
+	})
+}
+
+func TestBreakpointCounts(t *testing.T) {
+	withTestProcess("bpcountstest", t, func(p *Process, fixture protest.Fixture) {
+		addr, _, err := p.goSymTable.LineToPC(fixture.Source, 12)
+		assertNoError(err, t, "LineToPC")
+		bp, err := p.SetBreakpoint(addr)
+		assertNoError(err, t, "SetBreakpoint()")
+
+		for {
+			if err := p.Continue(); err != nil {
+				if _, exited := err.(ProcessExitedError); exited {
+					break
+				}
+				assertNoError(err, t, "Continue()")
+			}
+		}
+
+		t.Logf("TotalHitCount: %d", bp.TotalHitCount)
+		if bp.TotalHitCount != 200 {
+			t.Fatalf("Wrong TotalHitCount for the breakpoint (%d)", bp.TotalHitCount)
+		}
+
+		if len(bp.HitCount) != 2 {
+			t.Fatalf("Wrong number of goroutines for breakpoint (%d)", len(bp.HitCount))
+		}
+
+		for _, v := range bp.HitCount {
+			if v != 100 {
+				t.Fatalf("Wrong HitCount for breakpoint (%v)", bp.HitCount)
+			}
+		}
+	})
+}
+
+func BenchmarkArray(b *testing.B) {
+	// each bencharr struct is 128 bytes, bencharr is 64 elements long
+	b.SetBytes(int64(64 * 128))
+	withTestProcess("testvariables3", b, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), b, "Continue()")
+		for i := 0; i < b.N; i++ {
+			_, err := evalVariable(p, "bencharr")
+			assertNoError(err, b, "EvalVariable()")
+		}
+	})
+}
+
+const doTestBreakpointCountsWithDetection = false
+
+func TestBreakpointCountsWithDetection(t *testing.T) {
+	if !doTestBreakpointCountsWithDetection {
+		return
+	}
+	m := map[int64]int64{}
+	withTestProcess("bpcountstest", t, func(p *Process, fixture protest.Fixture) {
+		addr, _, err := p.goSymTable.LineToPC(fixture.Source, 12)
+		assertNoError(err, t, "LineToPC")
+		bp, err := p.SetBreakpoint(addr)
+		assertNoError(err, t, "SetBreakpoint()")
+
+		for {
+			if err := p.Continue(); err != nil {
+				if _, exited := err.(ProcessExitedError); exited {
+					break
+				}
+				assertNoError(err, t, "Continue()")
+			}
+			fmt.Printf("Continue returned %d\n", bp.TotalHitCount)
+			for _, th := range p.Threads {
+				if th.CurrentBreakpoint == nil {
+					continue
+				}
+				scope, err := th.Scope()
+				assertNoError(err, t, "Scope()")
+				v, err := scope.EvalVariable("i")
+				assertNoError(err, t, "evalVariable")
+				i, _ := constant.Int64Val(v.Value)
+				v, err = scope.EvalVariable("id")
+				assertNoError(err, t, "evalVariable")
+				id, _ := constant.Int64Val(v.Value)
+				m[id] = i
+				fmt.Printf("\tgoroutine (%d) %d: %d\n", th.ID, id, i)
+			}
+
+			total := int64(0)
+			for i := range m {
+				total += m[i] + 1
+			}
+
+			if uint64(total) != bp.TotalHitCount {
+				t.Fatalf("Mismatched total count %d %d\n", total, bp.TotalHitCount)
+			}
+		}
+
+		t.Logf("TotalHitCount: %d", bp.TotalHitCount)
+		if bp.TotalHitCount != 200 {
+			t.Fatalf("Wrong TotalHitCount for the breakpoint (%d)", bp.TotalHitCount)
+		}
+
+		if len(bp.HitCount) != 2 {
+			t.Fatalf("Wrong number of goroutines for breakpoint (%d)", len(bp.HitCount))
+		}
+
+		for _, v := range bp.HitCount {
+			if v != 100 {
+				t.Fatalf("Wrong HitCount for breakpoint (%v)", bp.HitCount)
+			}
+		}
+	})
+}
+
+func BenchmarkArrayPointer(b *testing.B) {
+	// each bencharr struct is 128 bytes, benchparr is an array of 64 pointers to bencharr
+	// each read will read 64 bencharr structs plus the 64 pointers of benchparr
+	b.SetBytes(int64(64*128 + 64*8))
+	withTestProcess("testvariables3", b, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), b, "Continue()")
+		for i := 0; i < b.N; i++ {
+			_, err := evalVariable(p, "bencharr")
+			assertNoError(err, b, "EvalVariable()")
+		}
+	})
+}
+
+func BenchmarkMap(b *testing.B) {
+	// m1 contains 41 entries, each one has a value that's 2 int values (2* 8 bytes) and a string key
+	// each string key has an average of 9 character
+	// reading strings and the map structure imposes a overhead that we ignore here
+	b.SetBytes(int64(41 * (2*8 + 9)))
+	withTestProcess("testvariables3", b, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), b, "Continue()")
+		for i := 0; i < b.N; i++ {
+			_, err := evalVariable(p, "m1")
+			assertNoError(err, b, "EvalVariable()")
+		}
+	})
+}
+
+func BenchmarkGoroutinesInfo(b *testing.B) {
+	withTestProcess("testvariables3", b, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), b, "Continue()")
+		for i := 0; i < b.N; i++ {
+			p.allGCache = nil
+			_, err := p.GoroutinesInfo()
+			assertNoError(err, b, "GoroutinesInfo")
+		}
+	})
+}
+
+func TestIssue262(t *testing.T) {
+	// Continue does not work when the current breakpoint is set on a NOP instruction
+	withTestProcess("issue262", t, func(p *Process, fixture protest.Fixture) {
+		addr, _, err := p.goSymTable.LineToPC(fixture.Source, 11)
+		assertNoError(err, t, "LineToPC")
+		_, err = p.SetBreakpoint(addr)
+		assertNoError(err, t, "SetBreakpoint()")
+
+		assertNoError(p.Continue(), t, "Continue()")
+		err = p.Continue()
+		if err == nil {
+			t.Fatalf("No error on second continue")
+		}
+		_, exited := err.(ProcessExitedError)
+		if !exited {
+			t.Fatalf("Process did not exit after second continue: %v", err)
+		}
+	})
+}
+
+func TestIssue341(t *testing.T) {
+	// pointer loop through map entries
+	withTestProcess("testvariables3", t, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), t, "Continue()")
+		t.Logf("requesting mapinf")
+		mapinf, err := evalVariable(p, "mapinf")
+		assertNoError(err, t, "EvalVariable()")
+		t.Logf("mapinf: %v\n", mapinf)
+	})
+}
+
+func BenchmarkLocalVariables(b *testing.B) {
+	withTestProcess("testvariables", b, func(p *Process, fixture protest.Fixture) {
+		assertNoError(p.Continue(), b, "Continue() returned an error")
+		scope, err := p.CurrentThread.Scope()
+		assertNoError(err, b, "Scope()")
+		for i := 0; i < b.N; i++ {
+			_, err := scope.LocalVariables()
+			assertNoError(err, b, "LocalVariables()")
+		}
 	})
 }

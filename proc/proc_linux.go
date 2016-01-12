@@ -23,17 +23,19 @@ import (
 
 // Process statuses
 const (
-	STATUS_SLEEPING   = 'S'
-	STATUS_RUNNING    = 'R'
-	STATUS_TRACE_STOP = 't'
-	STATUS_ZOMBIE     = 'Z'
+	StatusSleeping  = 'S'
+	StatusRunning   = 'R'
+	StatusTraceStop = 't'
+	StatusZombie    = 'Z'
 )
 
+// OSProcessDetails contains Linux specific
+// process details.
 type OSProcessDetails struct {
 	comm string
 }
 
-// Create and begin debugging a new process. First entry in
+// Launch creates and begins debugging a new process. First entry in
 // `cmd` is the program to run, and then rest are the arguments
 // to be supplied to that process.
 func Launch(cmd []string) (*Process, error) {
@@ -66,6 +68,7 @@ func Attach(pid int) (*Process, error) {
 	return initializeDebugProcess(New(pid), "", true)
 }
 
+// Kill kills the target process.
 func (dbp *Process) Kill() (err error) {
 	if dbp.exited {
 		return nil
@@ -128,7 +131,7 @@ func (dbp *Process) addThread(tid int, attach bool) (*Thread, error) {
 	}
 
 	dbp.Threads[tid] = &Thread{
-		Id:  tid,
+		ID:  tid,
 		dbp: dbp,
 		os:  new(OSSpecificDetails),
 	}
@@ -280,13 +283,15 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 			if err = th.Continue(); err != nil {
 				if err == sys.ESRCH {
 					// thread died while we were adding it
-					delete(dbp.Threads, th.Id)
+					delete(dbp.Threads, th.ID)
 					continue
 				}
 				return nil, fmt.Errorf("could not continue new thread %d %s", cloned, err)
 			}
 			if err = dbp.Threads[int(wpid)].Continue(); err != nil {
-				return nil, fmt.Errorf("could not continue existing thread %d %s", cloned, err)
+				if err != sys.ESRCH {
+					return nil, fmt.Errorf("could not continue existing thread %d %s", wpid, err)
+				}
 			}
 			continue
 		}
@@ -301,7 +306,7 @@ func (dbp *Process) trapWait(pid int) (*Thread, error) {
 		}
 		if status.StopSignal() == sys.SIGTRAP {
 			th.running = false
-			return dbp.handleBreakpointOnThread(wpid)
+			return th, nil
 		}
 		if th != nil {
 			// TODO(dp) alert user about unexpected signals here.
@@ -350,32 +355,74 @@ func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	if (pid != dbp.Pid) || (options != 0) {
 		wpid, err := sys.Wait4(pid, &s, sys.WALL|options, nil)
 		return wpid, &s, err
-	} else {
-		// If we call wait4/waitpid on a thread that is the leader of its group,
-		// with options == 0, while ptracing and the thread leader has exited leaving
-		// zombies of its own then waitpid hangs forever this is apparently intended
-		// behaviour in the linux kernel because it's just so convenient.
-		// Therefore we call wait4 in a loop with WNOHANG, sleeping a while between
-		// calls and exiting when either wait4 succeeds or we find out that the thread
-		// has become a zombie.
-		// References:
-		// https://sourceware.org/bugzilla/show_bug.cgi?id=12702
-		// https://sourceware.org/bugzilla/show_bug.cgi?id=10095
-		// https://sourceware.org/bugzilla/attachment.cgi?id=5685
-		for {
-			wpid, err := sys.Wait4(pid, &s, sys.WNOHANG|sys.WALL|options, nil)
+	}
+	// If we call wait4/waitpid on a thread that is the leader of its group,
+	// with options == 0, while ptracing and the thread leader has exited leaving
+	// zombies of its own then waitpid hangs forever this is apparently intended
+	// behaviour in the linux kernel because it's just so convenient.
+	// Therefore we call wait4 in a loop with WNOHANG, sleeping a while between
+	// calls and exiting when either wait4 succeeds or we find out that the thread
+	// has become a zombie.
+	// References:
+	// https://sourceware.org/bugzilla/show_bug.cgi?id=12702
+	// https://sourceware.org/bugzilla/show_bug.cgi?id=10095
+	// https://sourceware.org/bugzilla/attachment.cgi?id=5685
+	for {
+		wpid, err := sys.Wait4(pid, &s, sys.WNOHANG|sys.WALL|options, nil)
+		if err != nil {
+			return 0, nil, err
+		}
+		if wpid != 0 {
+			return wpid, &s, err
+		}
+		if status(pid, dbp.os.comm) == StatusZombie {
+			return pid, nil, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (dbp *Process) setCurrentBreakpoints(trapthread *Thread) error {
+	for _, th := range dbp.Threads {
+		if th.CurrentBreakpoint == nil {
+			err := th.SetCurrentBreakpoint()
 			if err != nil {
-				return 0, nil, err
+				return err
 			}
-			if wpid != 0 {
-				return wpid, &s, err
-			}
-			if status(pid, dbp.os.comm) == STATUS_ZOMBIE {
-				return pid, nil, nil
-			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}
+	return nil
+}
+
+func (dbp *Process) exitGuard(err error) error {
+	if err != sys.ESRCH {
+		return err
+	}
+	if status(dbp.Pid, dbp.os.comm) == StatusZombie {
+		_, err := dbp.trapWait(-1)
+		return err
+	}
+
+	return err
+}
+
+func (dbp *Process) resume() error {
+	// all threads stopped over a breakpoint are made to step over it
+	for _, thread := range dbp.Threads {
+		if thread.CurrentBreakpoint != nil {
+			if err := thread.Step(); err != nil {
+				return err
+			}
+			thread.CurrentBreakpoint = nil
+		}
+	}
+	// everything is resumed
+	for _, thread := range dbp.Threads {
+		if err := thread.resume(); err != nil && err != sys.ESRCH {
+			return err
+		}
+	}
+	return nil
 }
 
 func killProcess(pid int) error {

@@ -9,6 +9,8 @@ import (
 	"github.com/derekparker/delve/proc"
 )
 
+// ConvertBreakpoint converts from a proc.Breakpoint to
+// an api.Breakpoint.
 func ConvertBreakpoint(bp *proc.Breakpoint) *Breakpoint {
 	b := &Breakpoint{
 		ID:            bp.ID,
@@ -31,12 +33,15 @@ func ConvertBreakpoint(bp *proc.Breakpoint) *Breakpoint {
 	return b
 }
 
+// ConvertThread converts a proc.Thread into an
+// api thread.
 func ConvertThread(th *proc.Thread) *Thread {
 	var (
 		function *Function
 		file     string
 		line     int
 		pc       uint64
+		gid      int
 	)
 
 	loc, err := th.Location()
@@ -47,15 +52,28 @@ func ConvertThread(th *proc.Thread) *Thread {
 		function = ConvertFunction(loc.Fn)
 	}
 
+	var bp *Breakpoint
+
+	if th.CurrentBreakpoint != nil && th.BreakpointConditionMet {
+		bp = ConvertBreakpoint(th.CurrentBreakpoint)
+	}
+
+	if g, _ := th.GetG(); g != nil {
+		gid = g.ID
+	}
+
 	return &Thread{
-		ID:       th.Id,
-		PC:       pc,
-		File:     file,
-		Line:     line,
-		Function: function,
+		ID:          th.ID,
+		PC:          pc,
+		File:        file,
+		Line:        line,
+		Function:    function,
+		GoroutineID: gid,
+		Breakpoint:  bp,
 	}
 }
 
+// ConvertVar converts from proc.Variable to api.Variable.
 func ConvertVar(v *proc.Variable) *Variable {
 	r := Variable{
 		Addr:     v.Addr,
@@ -68,10 +86,16 @@ func ConvertVar(v *proc.Variable) *Variable {
 
 	if v.DwarfType != nil {
 		r.Type = v.DwarfType.String()
+		if r.Type == "*void" {
+			r.Type = "unsafe.Pointer"
+		}
 	}
 
 	if v.RealType != nil {
 		r.RealType = v.RealType.String()
+		if r.RealType == "*void" {
+			r.Type = "unsafe.Pointer"
+		}
 	}
 
 	if v.Unreadable != nil {
@@ -134,6 +158,8 @@ func ConvertVar(v *proc.Variable) *Variable {
 	return &r
 }
 
+// ConvertFunction converts from gosym.Func to
+// api.Function.
 func ConvertFunction(fn *gosym.Func) *Function {
 	if fn == nil {
 		return nil
@@ -147,15 +173,17 @@ func ConvertFunction(fn *gosym.Func) *Function {
 	}
 }
 
+// ConvertGoroutine converts from proc.G to api.Goroutine.
 func ConvertGoroutine(g *proc.G) *Goroutine {
 	return &Goroutine{
-		ID:             g.Id,
+		ID:             g.ID,
 		CurrentLoc:     ConvertLocation(g.CurrentLoc),
 		UserCurrentLoc: ConvertLocation(g.UserCurrent()),
 		GoStatementLoc: ConvertLocation(g.Go()),
 	}
 }
 
+// ConvertLocation converts from proc.Location to api.Location.
 func ConvertLocation(loc proc.Location) Location {
 	return Location{
 		PC:       loc.PC,
