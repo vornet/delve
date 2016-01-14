@@ -24,48 +24,72 @@ func (t *Thread) halt() (err error) {
 	return nil
 }
 
-func (t *Thread) singleStep() error {	
+func (t *Thread) singleStep() error {
 	var context C.CONTEXT
 	context.ContextFlags = C.CONTEXT_ALL;
 	
+    // Set the processor TRAP flag
 	res, err := C.GetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
 	
 	//TODO: Is it really okay to not decrement to IP?
-	//context.Rip--;
-	context.EFlags |= 0x100;
+	//context.Rip--
+	context.EFlags |= 0x100
 	
 	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
-	
-	// TODO: It's possible that this resume/trapWait will 
-	// land us on another thread. We need to guard for that 
-	// and loop here till we sucessfully land back on our thread.
-	err = t.resume()
-	if err != nil {
-		return err
+
+    // Suspend all threads except this one
+    for _, thread := range t.dbp.Threads {
+        if thread.ID == t.ID {
+            continue
+        }
+        res := C.SuspendThread(C.HANDLE(unsafe.Pointer(thread.os.hThread)))
+        if res == 0xFFFFFFFF {
+            return fmt.Errorf("Could not suspend thread: %d", thread.ID)
+        }
+    }
+    
+    // Continue and wait for the step to complete
+    t.dbp.execPtraceFunc(func() {
+	   res = C.ContinueDebugEvent(C.DWORD(t.dbp.Pid), C.DWORD(t.dbp.os.breakThread), C.DBG_CONTINUE)
+    })
+    if res == 0 {
+		return fmt.Errorf("Could not ContinueDebugEvent.")	
 	}
 	_, err = t.dbp.trapWait(0)
 	if err != nil {
 		return err
 	}
 	
+    // Resume all threads except this one
+    for _, thread := range t.dbp.Threads {
+        if thread.ID == t.ID {
+            continue
+        }
+        res := C.ResumeThread(C.HANDLE(unsafe.Pointer(thread.os.hThread)))
+        if res == 0xFFFFFFFF {
+            return fmt.Errorf("Could not resume thread: %d", thread.ID)
+        }
+    }
+    
+    // Unset the processor TRAP flag
 	res, err = C.GetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
 		
-	context.EFlags ^= 0x100;
+	context.EFlags &= ^C.DWORD(0x100)
 	
 	res, err = C.SetThreadContext(C.HANDLE(unsafe.Pointer(t.os.hThread)), &context)
 	if res == 0 {
 		return err
 	}
-	
+    	
 	return nil
 }
 
