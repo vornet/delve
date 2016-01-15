@@ -51,18 +51,18 @@ func Launch(cmd []string) (*Process, error) {
 	if _, err := os.Stat(argv0Go); err != nil {
 		return nil, err
 	}
-
-	argv0, _ := syscall.UTF16PtrFromString(argv0Go)
-
-	pi := new(sys.ProcessInformation)
-	si := new(sys.StartupInfo)
-	err = sys.CreateProcess(argv0, nil, nil, nil, true, DEBUGONLYTHISPROCESS, nil, nil, si, pi)
+    
+    attr := new(syscall.ProcAttr)
+    attr.Files = []uintptr{uintptr(syscall.Stdin), uintptr(syscall.Stdout), uintptr(syscall.Stderr)}
+    attr.Sys = new(syscall.SysProcAttr)
+    attr.Sys.CreationFlags |= DEBUGONLYTHISPROCESS
+    pid, phandle, err := syscall.StartProcess(argv0Go, []string{}, attr)
 	if err != nil {
 		return nil, err
 	}
-	defer sys.CloseHandle(sys.Handle(pi.Thread))
+	defer sys.CloseHandle(sys.Handle(phandle))
 	
-	dbp := New(int(pi.ProcessId))
+	dbp := New(pid)
 
 	switch runtime.GOARCH {
 	case "amd64":
