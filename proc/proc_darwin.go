@@ -369,7 +369,6 @@ func (dbp *Process) wait(pid, options int) (int, *sys.WaitStatus, error) {
 	return wpid, &status, err
 }
 
-
 func killProcess(pid int) error {
 	return sys.Kill(pid, sys.SIGINT)
 }
@@ -390,7 +389,7 @@ func (dbp *Process) resume() error {
 	// all threads stopped over a breakpoint are made to step over it
 	for _, thread := range dbp.Threads {
 		if thread.CurrentBreakpoint != nil {
-			if err := thread.Step(); err != nil {
+			if err := thread.StepInstruction(); err != nil {
 				return err
 			}
 			thread.CurrentBreakpoint = nil

@@ -175,7 +175,7 @@ func TestStep(t *testing.T) {
 		regs := getRegisters(p, t)
 		rip := regs.PC()
 
-		err = p.Step()
+		err = p.CurrentThread.StepInstruction()
 		assertNoError(err, t, "Step()")
 
 		regs = getRegisters(p, t)
@@ -1353,6 +1353,30 @@ func BenchmarkLocalVariables(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := scope.LocalVariables()
 			assertNoError(err, b, "LocalVariables()")
+		}
+	})
+}
+
+func TestStepIntoFunction(t *testing.T) {
+	withTestProcess("teststep", t, func(p *Process, fixture protest.Fixture) {
+		// Continue until breakpoint
+		assertNoError(p.Continue(), t, "Continue() returned an error")
+		// Step into function
+		assertNoError(p.Step(), t, "Step() returned an error")
+		// We should now be inside the function.
+		loc, err := p.CurrentLocation()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loc.Fn.Name != "main.callme" {
+			t.Fatalf("expected to be within the 'callme' function, was in %s instead", loc.Fn.Name)
+		}
+		if !strings.Contains(loc.File, "teststep") {
+			t.Fatalf("debugger stopped at incorrect location: %s:%d", loc.File, loc.Line)
+		}
+		// TODO(derekparker) consider skipping function prologue when stepping into func.
+		if loc.Line != 8 {
+			t.Fatalf("debugger stopped at incorrect line: %d", loc.Line)
 		}
 	})
 }

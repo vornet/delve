@@ -16,14 +16,14 @@ import (
 // a whole, and Status represents the last result of a `wait` call
 // on this thread.
 type Thread struct {
-	ID                     int             // Thread ID or mach port
-	Status                 *WaitStatus     // Status returned from last wait call
-	CurrentBreakpoint      *Breakpoint     // Breakpoint thread is currently stopped at
-	BreakpointConditionMet bool            // Output of evaluating the breakpoint's condition
-	dbp            *Process
-	singleStepping bool
-	running        bool
-	os             *OSSpecificDetails
+	ID                     int         // Thread ID or mach port
+	Status                 *WaitStatus // Status returned from last wait call
+	CurrentBreakpoint      *Breakpoint // Breakpoint thread is currently stopped at
+	BreakpointConditionMet bool        // Output of evaluating the breakpoint's condition
+	dbp                    *Process
+	singleStepping         bool
+	running                bool
+	os                     *OSSpecificDetails
 }
 
 // Location represents the location of a thread.
@@ -49,20 +49,20 @@ func (thread *Thread) Continue() error {
 	// Check whether we are stopped at a breakpoint, and
 	// if so, single step over it before continuing.
 	if _, ok := thread.dbp.FindBreakpoint(pc); ok {
-		if err := thread.Step(); err != nil {
+		if err := thread.StepInstruction(); err != nil {
 			return err
 		}
 	}
 	return thread.resume()
 }
 
-// Step a single instruction.
+// StepInstruction steps a single instruction.
 //
 // Executes exactly one instruction and then returns.
 // If the thread is at a breakpoint, we first clear it,
 // execute the instruction, and then replace the breakpoint.
 // Otherwise we simply execute the next instruction.
-func (thread *Thread) Step() (err error) {
+func (thread *Thread) StepInstruction() (err error) {
 	thread.running = true
 	thread.singleStepping = true
 	defer func() {
@@ -276,11 +276,11 @@ func (thread *Thread) GetG() (g *G, err error) {
 		return nil, err
 	}
 	gaddr := binary.LittleEndian.Uint64(gaddrbs)
-	
-	// On Windows, the value at TLS()+GStructOffset() is a 
+
+	// On Windows, the value at TLS()+GStructOffset() is a
 	// pointer to the G struct.
 	needsDeref := runtime.GOOS == "windows"
-	
+
 	g, err = parseG(thread, gaddr, needsDeref)
 	if err == nil {
 		g.thread = thread
